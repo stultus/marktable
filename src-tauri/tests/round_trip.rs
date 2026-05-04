@@ -7,8 +7,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use marktable_lib::formats::{markdown, LineEnding};
-use marktable_lib::model::Schema;
+use marktable_lib::formats::{json, markdown, yaml, LineEnding};
+use marktable_lib::model::{Record, Schema, Value};
 
 fn temp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("marktable-test-{label}-{}", std::process::id()));
@@ -60,6 +60,99 @@ fn folder_round_trip_preserves_body_bytes_per_file() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+// ─── Key-order preservation (PRD: "Original field order is preserved per file. New fields
+// are appended at the end of each record's block.") ──────────────────────────────────────
+
+fn keys_in_order(record: &Record) -> Vec<String> {
+    record.fields.keys().cloned().collect()
+}
+
+#[test]
+fn json_preserves_key_order_on_round_trip() {
+    let text = r#"[{"z": 1, "a": 2, "m": 3}]"#;
+    let parsed = json::parse("k.json", text).unwrap();
+    assert_eq!(
+        keys_in_order(&parsed.records[0]),
+        vec!["z", "a", "m"],
+        "parse must keep original JSON key order"
+    );
+
+    let schema_keys = vec!["z".into(), "a".into(), "m".into()];
+    let out = json::serialize(&parsed.records, &schema_keys, parsed.indent).unwrap();
+    let reparsed = json::parse("k.json", &out).unwrap();
+    assert_eq!(
+        keys_in_order(&reparsed.records[0]),
+        vec!["z", "a", "m"],
+        "serialize → reparse must keep order"
+    );
+}
+
+#[test]
+fn yaml_preserves_key_order_on_round_trip() {
+    let text = "- z: 1\n  a: 2\n  m: 3\n";
+    let parsed = yaml::parse("k.yaml", text).unwrap();
+    assert_eq!(keys_in_order(&parsed.records[0]), vec!["z", "a", "m"]);
+
+    let schema_keys = vec!["z".into(), "a".into(), "m".into()];
+    let out = yaml::serialize(&parsed.records, &schema_keys).unwrap();
+    let reparsed = yaml::parse("k.yaml", &out).unwrap();
+    assert_eq!(keys_in_order(&reparsed.records[0]), vec!["z", "a", "m"]);
+}
+
+#[test]
+fn markdown_preserves_frontmatter_key_order_on_round_trip() {
+    let text = "---\nz: 1\na: 2\nm: 3\n---\nbody\n";
+    let parsed = markdown::parse("k.md", text).unwrap();
+    assert_eq!(keys_in_order(&parsed.record), vec!["z", "a", "m"]);
+
+    let schema_keys = vec!["z".into(), "a".into(), "m".into()];
+    let out = markdown::serialize(&parsed.record, &parsed.body, &schema_keys, LineEnding::Lf).unwrap();
+    let reparsed = markdown::parse("k.md", &out).unwrap();
+    assert_eq!(keys_in_order(&reparsed.record), vec!["z", "a", "m"]);
+}
+
+#[test]
+fn json_appends_new_field_after_existing_keys() {
+    let text = r#"[{"z": 1, "a": 2, "m": 3}]"#;
+    let parsed = json::parse("k.json", text).unwrap();
+    let schema_keys: Vec<String> = vec!["z".into(), "a".into(), "m".into(), "x".into()];
+    let out = json::serialize(&parsed.records, &schema_keys, parsed.indent).unwrap();
+    let reparsed = json::parse("k.json", &out).unwrap();
+    assert_eq!(
+        keys_in_order(&reparsed.records[0]),
+        vec!["z", "a", "m", "x"],
+        "new column `x` must append after existing keys"
+    );
+    assert_eq!(reparsed.records[0].fields.get("x"), Some(&Value::Null));
+}
+
+#[test]
+fn yaml_appends_new_field_after_existing_keys() {
+    let text = "- z: 1\n  a: 2\n  m: 3\n";
+    let parsed = yaml::parse("k.yaml", text).unwrap();
+    let schema_keys: Vec<String> = vec!["z".into(), "a".into(), "m".into(), "x".into()];
+    let out = yaml::serialize(&parsed.records, &schema_keys).unwrap();
+    let reparsed = yaml::parse("k.yaml", &out).unwrap();
+    assert_eq!(
+        keys_in_order(&reparsed.records[0]),
+        vec!["z", "a", "m", "x"]
+    );
+    assert_eq!(reparsed.records[0].fields.get("x"), Some(&Value::Null));
+}
+
+#[test]
+fn markdown_appends_new_field_after_existing_keys() {
+    let text = "---\nz: 1\na: 2\nm: 3\n---\nbody\n";
+    let parsed = markdown::parse("k.md", text).unwrap();
+    let schema_keys: Vec<String> = vec!["z".into(), "a".into(), "m".into(), "x".into()];
+    let out = markdown::serialize(&parsed.record, &parsed.body, &schema_keys, LineEnding::Lf).unwrap();
+    let reparsed = markdown::parse("k.md", &out).unwrap();
+    assert_eq!(
+        keys_in_order(&reparsed.record),
+        vec!["z", "a", "m", "x"]
+    );
 }
 
 #[test]
