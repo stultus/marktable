@@ -1,0 +1,55 @@
+- title: The Pragmatic Programmer
+  author: Andrew Hunt, David Thomas
+  year: 1999
+  rating: 5
+  read: true
+  started: 2024-03-12
+  tags:
+    - software
+    - career
+    - classic
+  notes: Reread every couple of years.
+
+- title: Designing Data-Intensive Applications
+  author: Martin Kleppmann
+  year: 2017
+  rating: 5
+  read: true
+  started: 2025-01-04
+  tags:
+    - distributed-systems
+    - databases
+  notes: The chapter on consensus is worth the price alone.
+
+- title: A Philosophy of Software Design
+  author: John Ousterhout
+  year: 2018
+  rating: 4
+  read: true
+  started: 2024-09-22
+  tags:
+    - software
+    - design
+  notes: ""
+
+- title: Crafting Interpreters
+  author: Robert Nystrom
+  year: 2021
+  rating: 5
+  read: false
+  started: 2026-02-18
+  tags:
+    - compilers
+    - languages
+  notes: Halfway through the tree-walker.
+
+- title: The Annotated Turing
+  author: Charles Petzold
+  year: 2008
+  rating:
+  read: false
+  started:
+  tags:
+    - theory
+    - history
+  notes:

@@ -1,0 +1,28 @@
+[package]
+name = "marktable"
+version = "0.1.0"
+description = "MarkTable Editor — spreadsheet view for folders of structured content files"
+authors = ["Hiran V"]
+edition = "2021"
+
+[lib]
+name = "marktable_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+indexmap = { version = "2", features = ["serde"] }
+thiserror = "1"
+regex = "1"
+once_cell = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"
