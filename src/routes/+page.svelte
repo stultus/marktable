@@ -182,14 +182,14 @@
   :global(:root) {
     /* Typography — developer-tool stack */
     --mt-font-sans:
-      "Geist", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI",
-      "Helvetica Neue", sans-serif;
+      "Geist Sans", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", "Helvetica Neue", sans-serif;
     --mt-font-mono:
       "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono",
       Consolas, monospace;
     --mt-font-display:
-      "Geist", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI",
-      sans-serif;
+      "Geist Sans", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
 
     /* Surfaces — Notion warm-paper palette */
     --mt-page-bg: #ffffff;
