@@ -17,15 +17,6 @@
     else if (demo === "yaml") table = demoYaml();
 
     const onError = (e: ErrorEvent) => {
-      // Browsers fire this benign warning when a ResizeObserver callback
-      // schedules another layout change in the same frame. It is not an
-      // actual error and should not surface as a fatal modal.
-      if (
-        e.message?.startsWith("ResizeObserver loop") ||
-        e.message?.includes("ResizeObserver loop completed")
-      ) {
-        return;
-      }
       fatal = `${e.message}\n${e.error?.stack ?? ""}`;
       console.error("[marktable] window error", e.error ?? e.message);
     };
