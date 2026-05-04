@@ -2,20 +2,12 @@
   import { onMount } from "svelte";
   import StartScreen from "$lib/StartScreen.svelte";
   import TableView from "$lib/TableView.svelte";
-  import { demoJson, demoYaml } from "$lib/demo";
   import type { TableModel } from "$lib/api";
 
   let table = $state<TableModel | null>(null);
   let fatal = $state<string | null>(null);
 
   onMount(() => {
-    // ?demo=json | ?demo=yaml — bypasses Tauri commands so the UI can be
-    // verified in plain Chrome (headless or otherwise).
-    const params = new URLSearchParams(window.location.search);
-    const demo = params.get("demo");
-    if (demo === "json") table = demoJson();
-    else if (demo === "yaml") table = demoYaml();
-
     const onError = (e: ErrorEvent) => {
       fatal = `${e.message}\n${e.error?.stack ?? ""}`;
       console.error("[marktable] window error", e.error ?? e.message);
