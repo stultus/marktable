@@ -85,7 +85,44 @@ pub fn serialize(records: &[Record], schema_keys: &[String]) -> Result<String> {
         seq.push(serde_yaml::Value::Mapping(mapping));
     }
     let value = serde_yaml::Value::Sequence(seq);
-    serde_yaml::to_string(&value).map_err(|e| Error::Other(format!("yaml serialize: {e}")))
+    let raw = serde_yaml::to_string(&value)
+        .map_err(|e| Error::Other(format!("yaml serialize: {e}")))?;
+    Ok(normalize_null_keys(&raw))
+}
+
+/// PRD §7.4: empty cells must serialize as bare `key:` not `key: null`.
+/// `serde_yaml` emits `Value::Null` as `null`. We post-process to drop the
+/// `null` suffix on list-item keys (the only kind we produce).
+///
+/// Touches lines of form `- key: null` and `  key: null` (top-level keys of
+/// list items). Lines indented deeper than 2 spaces are left alone — nested
+/// mappings could legitimately contain `null` values that the user typed.
+fn normalize_null_keys(yaml_text: &str) -> String {
+    yaml_text
+        .split('\n')
+        .map(|line| {
+            let (prefix_len, body) = if let Some(rest) = line.strip_prefix("- ") {
+                (2, rest)
+            } else if let Some(rest) = line.strip_prefix("  ") {
+                if rest.starts_with(' ') {
+                    return line.to_string();
+                }
+                (2, rest)
+            } else {
+                return line.to_string();
+            };
+            if let Some(idx) = body.find(": null") {
+                if body[idx + ": null".len()..].trim().is_empty() {
+                    let key = &body[..idx];
+                    if !key.is_empty() && !key.contains(':') {
+                        return format!("{}{}:", &line[..prefix_len], key);
+                    }
+                }
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]
@@ -136,11 +173,29 @@ mod tests {
     }
 
     #[test]
-    fn null_preservation_writes_missing_key() {
+    fn null_preservation_writes_bare_key() {
         let text = "- name: Alice\n";
         let parsed = parse(p(), text).unwrap();
         let out = serialize(&parsed.records, &["name".into(), "age".into()]).unwrap();
-        // serde_yaml writes Null as `null`. We accept that for MVP.
-        assert!(out.contains("age:"));
+        // PRD §7.4: empty cells must be `age:` (bare), not `age: null`.
+        assert!(
+            out.contains("age:\n") || out.ends_with("age:"),
+            "expected bare `age:`, got:\n{out}"
+        );
+        assert!(
+            !out.contains("age: null"),
+            "must not emit `null` for empty cells:\n{out}"
+        );
+    }
+
+    #[test]
+    fn null_preservation_first_key_with_dash() {
+        // First key of a list item is on the same line as `- `.
+        let mut r = Record::new();
+        r.insert("name", Value::Null);
+        r.insert("age", Value::Number(serde_json::Number::from(25)));
+        let out = serialize(&[r], &["name".into(), "age".into()]).unwrap();
+        assert!(out.contains("- name:\n"), "expected `- name:` line:\n{out}");
+        assert!(!out.contains("name: null"), "must not emit null:\n{out}");
     }
 }
