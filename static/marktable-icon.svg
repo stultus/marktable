@@ -1,0 +1,18 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Apple-style rounded square: warm paper background, dark grid mark.
+       Mirrors the topbar .brand-mark in StartScreen.svelte (16-grid scaled up). -->
+  <rect x="0" y="0" width="1024" height="1024" rx="225" ry="225" fill="#FBFAF9"/>
+
+  <!-- Inner soft border -->
+  <rect x="0" y="0" width="1024" height="1024" rx="225" ry="225"
+        fill="none" stroke="rgba(55,53,47,0.06)" stroke-width="2"/>
+
+  <!-- Mark group: original 16x16 design, scaled 48x and centred.
+       Original viewBox is 0..16 with rect at 1.5,2.5..14.5,13.5 and
+       interior lines at x=5,11 and y=6,10. -->
+  <g transform="translate(176, 176) scale(42.6667)" fill="none" stroke="#37352F"
+     stroke-linecap="square" stroke-linejoin="miter">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke-width="0.7"/>
+    <path d="M5 2.5v11M11 2.5v11M1.5 6h13M1.5 10h13" stroke-width="0.55"/>
+  </g>
+</svg>
