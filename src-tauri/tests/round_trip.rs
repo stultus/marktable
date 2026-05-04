@@ -155,6 +155,63 @@ fn markdown_appends_new_field_after_existing_keys() {
     );
 }
 
+// ─── End-to-end round-trip on real files ─────────────────────────────────────────────────
+
+#[test]
+fn json_round_trip_byte_identity_no_user_edits() {
+    // No edits — just open → serialize. With detected indent reproduced and
+    // preserved key order, we expect byte-identical output for clean input.
+    let text = "[\n  {\n    \"title\": \"A\",\n    \"rating\": 5\n  },\n  {\n    \"title\": \"B\",\n    \"rating\": 3\n  }\n]\n";
+    let parsed = json::parse("rt.json", text).unwrap();
+    let schema = Schema::infer(&parsed.records);
+    let out = json::serialize(&parsed.records, &schema.keys(), parsed.indent).unwrap();
+    assert_eq!(out, text, "untouched JSON must round-trip byte-for-byte");
+}
+
+#[test]
+fn json_round_trip_preserves_4space_indent() {
+    let text = "[\n    {\n        \"a\": 1,\n        \"b\": \"x\"\n    }\n]\n";
+    let parsed = json::parse("rt.json", text).unwrap();
+    let schema = Schema::infer(&parsed.records);
+    let out = json::serialize(&parsed.records, &schema.keys(), parsed.indent).unwrap();
+    assert_eq!(out, text);
+}
+
+#[test]
+fn json_round_trip_preserves_tab_indent() {
+    let text = "[\n\t{\n\t\t\"a\": 1,\n\t\t\"b\": \"x\"\n\t}\n]\n";
+    let parsed = json::parse("rt.json", text).unwrap();
+    let schema = Schema::infer(&parsed.records);
+    let out = json::serialize(&parsed.records, &schema.keys(), parsed.indent).unwrap();
+    assert_eq!(out, text);
+}
+
+#[test]
+fn yaml_round_trip_byte_identity_no_comments() {
+    // For files without comments and using serde_yaml's canonical layout, an
+    // open → serialize round-trip should be byte-identical.
+    let text = "- name: Alice\n  age: 30\n- name: Bob\n  age: 25\n";
+    let parsed = yaml::parse("rt.yaml", text).unwrap();
+    assert!(!parsed.had_comments);
+    let schema = Schema::infer(&parsed.records);
+    let out = yaml::serialize(&parsed.records, &schema.keys()).unwrap();
+    assert_eq!(out, text, "untouched comment-free YAML must round-trip byte-for-byte");
+}
+
+#[test]
+#[ignore = "blocked on #1: YAML comment preservation"]
+fn yaml_round_trip_preserves_comments() {
+    // Until span-aware YAML rewrite lands, comments are dropped. This test
+    // codifies the post-#1 acceptance criterion.
+    let text = "# header comment\n- name: Alice  # inline\n  age: 30\n";
+    let parsed = yaml::parse("rt.yaml", text).unwrap();
+    assert!(parsed.had_comments);
+    let schema = Schema::infer(&parsed.records);
+    let out = yaml::serialize(&parsed.records, &schema.keys()).unwrap();
+    assert!(out.contains("# header comment"), "header comment dropped");
+    assert!(out.contains("# inline"), "inline comment dropped");
+}
+
 #[test]
 fn empty_columns_warning_lists_keys_with_no_values() {
     let dir = temp_dir("empty-cols");
