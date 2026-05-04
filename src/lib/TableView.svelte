@@ -22,11 +22,71 @@
 
   let model = $state<TableModel>(untrack(() => table));
   let dirtyCells = $state(new Set<string>());
+  let schemaDirty = $state(false);
   let saving = $state(false);
   let toast = $state<{ kind: "success" | "error"; text: string } | null>(null);
   let dismissedWarnings = $state(new Set<number>());
 
+  // Add Column modal state
+  let addColOpen = $state(false);
+  let addColName = $state("");
+  let addColType = $state<FieldType>("text");
+  let addColError = $state<string | null>(null);
+
+  // Delete-column confirmation
+  let pendingDeleteCol = $state<string | null>(null);
+
   const cellKey = (row: number, col: string) => `${row}::${col}`;
+
+  function openAddColumn() {
+    addColName = "";
+    addColType = "text";
+    addColError = null;
+    addColOpen = true;
+  }
+  function closeAddColumn() {
+    addColOpen = false;
+  }
+  function confirmAddColumn() {
+    const name = addColName.trim();
+    if (!name) {
+      addColError = "Field name is required.";
+      return;
+    }
+    if (model.schema.columns.some((c) => c.name === name)) {
+      addColError = `A column named "${name}" already exists.`;
+      return;
+    }
+    model.schema.columns = [
+      ...model.schema.columns,
+      { name, type: addColType },
+    ];
+    schemaDirty = true;
+    addColOpen = false;
+  }
+
+  function requestDeleteColumn(name: string) {
+    pendingDeleteCol = name;
+  }
+  function cancelDeleteColumn() {
+    pendingDeleteCol = null;
+  }
+  function confirmDeleteColumn() {
+    const name = pendingDeleteCol;
+    if (!name) return;
+    model.schema.columns = model.schema.columns.filter((c) => c.name !== name);
+    for (const row of model.rows) {
+      delete row.record.fields[name];
+    }
+    // Clear any per-cell dirty flags for this column.
+    const next = new Set<string>();
+    for (const k of dirtyCells) {
+      if (!k.endsWith(`::${name}`)) next.add(k);
+    }
+    dirtyCells = next;
+    schemaDirty = true;
+    pendingDeleteCol = null;
+  }
 
   function commitEdit(row: number, col: string, raw: string, type: FieldType) {
     const next = displayToValue(raw, type);
@@ -81,6 +141,7 @@
           text: `Saved ${wrote} file${wrote === 1 ? "" : "s"}.`,
         };
         dirtyCells = new Set();
+        schemaDirty = false;
         // Auto-dismiss success after 3.2s
         setTimeout(() => {
           if (toast?.kind === "success") toast = null;
@@ -125,6 +186,7 @@
 
   let pathInfo = $derived(modePathSegments());
   let dirtyCount = $derived(dirtyCells.size);
+  let hasUnsaved = $derived(dirtyCount > 0 || schemaDirty);
   let hasColumns = $derived(model.schema.columns.length > 0);
   let visibleWarnings = $derived(
     model.warnings
@@ -192,16 +254,20 @@
       <span class="meta-label">{model.schema.columns.length === 1 ? "field" : "fields"}</span>
     </span>
 
-    {#if dirtyCount > 0}
+    {#if dirtyCount > 0 || schemaDirty}
       <span class="dirty-pill" transition:fade={{ duration: 120 }}>
         <span class="dirty-dot" aria-hidden="true"></span>
-        {dirtyCount} unsaved
+        {#if dirtyCount > 0}
+          {dirtyCount} unsaved
+        {:else}
+          schema changed
+        {/if}
       </span>
     {/if}
 
     <button
       class="save-btn"
-      disabled={saving || dirtyCount === 0}
+      disabled={saving || !hasUnsaved}
       onclick={doSave}
       aria-busy={saving}
     >
@@ -277,17 +343,23 @@
             <path d="M10 6v20M22 6v20M3 13h26M3 19h26" stroke="currentColor" stroke-width="1.2" />
           </svg>
         </span>
-        <h2>Nothing to put in columns yet.</h2>
+        <h2>No columns yet.</h2>
         <p>
           {#if model.mode.kind === "folder"}
             The <code>.md</code> files in this folder don't have any frontmatter
-            fields. MarkTable edits the YAML block at the top of each file —
-            try adding <code>---</code>-delimited frontmatter to your files,
-            then reopen the folder.
+            fields. Add a column to start filling in values — Save All will
+            write a YAML frontmatter block to each file.
           {:else}
-            This file parses as a list, but the records have no fields.
+            This file parses as a list, but the records have no fields. Add a
+            column to start filling in values.
           {/if}
         </p>
+        <button class="empty-cta" onclick={openAddColumn}>
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+            <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <span>Add a column</span>
+        </button>
       </div>
     </div>
   {:else}
@@ -299,11 +371,35 @@
               {model.mode.kind === "folder" ? "file" : "#"}
             </th>
             {#each model.schema.columns as col (col.name)}
-              <th>
+              <th class="col-head">
                 <span class="col-name">{col.name}</span>
                 <span class="col-type type-{col.type}">{col.type}</span>
+                <button
+                  type="button"
+                  class="col-delete"
+                  onclick={() => requestDeleteColumn(col.name)}
+                  title="Delete column"
+                  aria-label="Delete column {col.name}"
+                >
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                    <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  </svg>
+                </button>
               </th>
             {/each}
+            <th class="col-add">
+              <button
+                type="button"
+                class="col-add-btn"
+                onclick={openAddColumn}
+                title="Add column"
+                aria-label="Add column"
+              >
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+                  <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -410,6 +506,7 @@
                   {/if}
                 </td>
               {/each}
+              <td class="col-add-cell" aria-hidden="true"></td>
             </tr>
           {/each}
         </tbody>
@@ -444,6 +541,57 @@
           <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
         </svg>
       </button>
+    </div>
+  {/if}
+
+  {#if addColOpen}
+    <div class="modal-backdrop" onclick={closeAddColumn} role="presentation"></div>
+    <div class="modal" role="dialog" aria-labelledby="add-col-title" aria-modal="true">
+      <form onsubmit={(e) => { e.preventDefault(); confirmAddColumn(); }}>
+        <h2 id="add-col-title">Add a column</h2>
+        <label class="field">
+          <span>Field name</span>
+          <input
+            type="text"
+            bind:value={addColName}
+            placeholder="e.g. status"
+            autocomplete="off"
+          />
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select bind:value={addColType}>
+            <option value="text">text</option>
+            <option value="number">number</option>
+            <option value="boolean">boolean</option>
+            <option value="date">date</option>
+            <option value="list">list</option>
+            <option value="raw">raw</option>
+          </select>
+        </label>
+        {#if addColError}
+          <p class="modal-error">{addColError}</p>
+        {/if}
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick={closeAddColumn}>Cancel</button>
+          <button type="submit" class="btn-primary">Add</button>
+        </div>
+      </form>
+    </div>
+  {/if}
+
+  {#if pendingDeleteCol !== null}
+    <div class="modal-backdrop" onclick={cancelDeleteColumn} role="presentation"></div>
+    <div class="modal" role="alertdialog" aria-labelledby="del-col-title" aria-modal="true">
+      <h2 id="del-col-title">Delete column?</h2>
+      <p class="modal-body">
+        Removes <code>{pendingDeleteCol}</code> from every row. The field
+        won't be written when you Save All.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick={cancelDeleteColumn}>Cancel</button>
+        <button type="button" class="btn-danger" onclick={confirmDeleteColumn}>Delete</button>
+      </div>
     </div>
   {/if}
 </div>
@@ -701,6 +849,176 @@
     border-radius: 3px;
     color: var(--mt-fg);
   }
+  .empty-cta {
+    all: unset;
+    margin-top: 18px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--mt-accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 4px;
+    transition: background 140ms ease;
+  }
+  .empty-cta:hover {
+    background: var(--mt-accent-hover);
+  }
+  .empty-cta:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 2px;
+  }
+
+  /* ===== Add Column modal ===== */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 15, 15, 0.32);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 999;
+    animation: fade-in 140ms ease-out;
+  }
+  .modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px));
+    background: var(--mt-elevated);
+    color: var(--mt-fg);
+    border: 1px solid var(--mt-border-strong);
+    border-radius: 8px;
+    padding: 20px 22px 16px;
+    z-index: 1000;
+    box-shadow: var(--mt-shadow-2);
+    animation: pop-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  }
+  .modal form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .modal h2 {
+    margin: 0 0 4px;
+    font-family: var(--mt-font-display);
+    font-weight: 600;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    color: var(--mt-fg);
+  }
+  .modal .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 12.5px;
+    color: var(--mt-fg-muted);
+  }
+  .modal .field span {
+    font-weight: 500;
+    color: var(--mt-fg);
+    font-size: 12px;
+  }
+  .modal input[type="text"],
+  .modal select {
+    font: inherit;
+    font-size: 13.5px;
+    padding: 7px 10px;
+    background: var(--mt-surface);
+    color: var(--mt-fg);
+    border: 1px solid var(--mt-border);
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .modal input[type="text"]:focus,
+  .modal select:focus {
+    border-color: var(--mt-accent);
+    background: var(--mt-elevated);
+  }
+  .modal-error {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--mt-error-fg);
+    background: var(--mt-error-bg);
+    padding: 6px 10px;
+    border-radius: 4px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .btn-primary,
+  .btn-secondary {
+    all: unset;
+    cursor: pointer;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 4px;
+    transition: background 120ms ease;
+  }
+  .btn-primary {
+    background: var(--mt-accent);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--mt-accent-hover);
+  }
+  .btn-danger {
+    background: var(--mt-error);
+    color: #fff;
+  }
+  .btn-danger:hover {
+    background: color-mix(in srgb, var(--mt-error) 86%, black);
+  }
+  .modal-body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--mt-fg-muted);
+  }
+  .modal-body code {
+    font-family: var(--mt-font-mono);
+    font-size: 12px;
+    background: var(--mt-surface-strong);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--mt-fg);
+    margin: 0 1px;
+  }
+  .btn-secondary {
+    background: var(--mt-surface);
+    color: var(--mt-fg);
+    border: 1px solid var(--mt-border-strong);
+  }
+  .btn-secondary:hover {
+    background: var(--mt-hover);
+  }
+  .btn-primary:focus-visible,
+  .btn-secondary:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 2px;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
 
   /* ===== Table grid ===== */
   .grid-wrap {
@@ -744,6 +1062,74 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--mt-fg-subtle);
+  }
+  /* Per-column delete (×) — only visible on header hover. */
+  thead th.col-head {
+    position: sticky;
+    top: 0;
+    padding-right: 28px;
+  }
+  .col-delete {
+    all: unset;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    color: var(--mt-fg-subtle);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  thead th.col-head:hover .col-delete,
+  .col-delete:focus-visible {
+    opacity: 1;
+  }
+  .col-delete:hover {
+    background: var(--mt-error-bg);
+    color: var(--mt-error);
+  }
+  .col-delete:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 1px;
+  }
+  /* Trailing "+" header */
+  thead th.col-add {
+    padding: 4px;
+    background: var(--mt-page-bg);
+    border-right: none;
+    border-bottom: 1px solid var(--mt-border);
+    width: 38px;
+  }
+  .col-add-btn {
+    all: unset;
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--mt-fg-subtle);
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .col-add-btn:hover {
+    background: var(--mt-hover);
+    color: var(--mt-fg);
+  }
+  .col-add-btn:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 1px;
+  }
+  td.col-add-cell {
+    background: var(--mt-page-bg);
+    border-bottom: 1px solid var(--mt-divider);
+    padding: 0;
+    min-height: 36px;
   }
 
   /* Sticky row-head column (filename / index) */
