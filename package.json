@@ -1,8 +1,13 @@
 {
   "name": "marktable",
   "version": "0.0.1",
-  "description": "",
+  "description": "Cross-platform desktop editor for folders of structured-content files (markdown frontmatter, JSON arrays, YAML lists) — opens them as a spreadsheet, writes them back via Save All.",
   "type": "module",
+  "author": "Hrishikesh Bhaskaran",
+  "contributors": [
+    "Hrishikesh Bhaskaran",
+    "Hiran Venugopalan"
+  ],
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

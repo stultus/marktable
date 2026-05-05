@@ -2,7 +2,7 @@
 name = "marktable"
 version = "0.0.1"
 description = "MarkTable Editor — spreadsheet view for folders of structured content files"
-authors = ["Hiran V"]
+authors = ["Hrishikesh Bhaskaran", "Hiran Venugopalan"]
 edition = "2021"
 
 [lib]
