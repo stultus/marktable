@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onMount, untrack, tick } from "svelte";
   import { fly, fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import {
@@ -12,6 +12,17 @@
     type FieldType,
     type Record as MtRecord,
   } from "./api";
+  import Select from "./Select.svelte";
+  import DatePicker from "./DatePicker.svelte";
+
+  const FIELD_TYPE_OPTIONS: { value: FieldType; label: string; hint: string }[] = [
+    { value: "text", label: "Text", hint: "string" },
+    { value: "number", label: "Number", hint: "int / float" },
+    { value: "boolean", label: "Boolean", hint: "true / false" },
+    { value: "date", label: "Date", hint: "yyyy-mm-dd" },
+    { value: "list", label: "List", hint: "comma-separated" },
+    { value: "raw", label: "Raw", hint: "passthrough" },
+  ];
 
   let {
     table,
@@ -23,6 +34,7 @@
 
   let model = $state<TableModel>(untrack(() => table));
   let dirtyCells = $state(new Set<string>());
+  let invalidCells = $state(new Map<string, string>());
   let schemaDirty = $state(false);
   let saving = $state(false);
   let toast = $state<{ kind: "success" | "error"; text: string } | null>(null);
@@ -33,6 +45,14 @@
   let addColName = $state("");
   let addColType = $state<FieldType>("text");
   let addColError = $state<string | null>(null);
+
+  // Edit Column modal state
+  let editColOpen = $state(false);
+  let editColOriginalName = $state("");
+  let editColName = $state("");
+  let editColType = $state<FieldType>("text");
+  let editColError = $state<string | null>(null);
+  let editColInput = $state<HTMLInputElement | null>(null);
 
   // Delete-column confirmation
   let pendingDeleteCol = $state<string | null>(null);
@@ -46,11 +66,15 @@
 
   const cellKey = (row: number, col: string) => `${row}::${col}`;
 
+  let addColInput = $state<HTMLInputElement | null>(null);
+  let addRowInput = $state<HTMLInputElement | null>(null);
+
   function openAddColumn() {
     addColName = "";
     addColType = "text";
     addColError = null;
     addColOpen = true;
+    tick().then(() => addColInput?.focus());
   }
   function closeAddColumn() {
     addColOpen = false;
@@ -88,6 +112,7 @@
       addRowFilename = "";
       addRowError = null;
       addRowOpen = true;
+      tick().then(() => addRowInput?.focus());
       return;
     }
     const nextIndex = model.rows.length;
@@ -144,6 +169,60 @@
     rowsDirty = true;
   }
 
+  function openEditColumn(col: { name: string; type: FieldType }) {
+    editColOriginalName = col.name;
+    editColName = col.name;
+    editColType = col.type;
+    editColError = null;
+    editColOpen = true;
+    tick().then(() => editColInput?.focus());
+  }
+  function cancelEditColumn() {
+    editColOpen = false;
+  }
+  function confirmEditColumn() {
+    const name = editColName.trim();
+    if (!name) {
+      editColError = "Field name is required.";
+      return;
+    }
+    if (
+      name !== editColOriginalName &&
+      model.schema.columns.some((c) => c.name === name)
+    ) {
+      editColError = `A column named "${name}" already exists.`;
+      return;
+    }
+    const oldName = editColOriginalName;
+    // Replace the column metadata in-place so order is preserved.
+    model.schema.columns = model.schema.columns.map((c) =>
+      c.name === oldName ? { name, type: editColType } : c
+    );
+    if (name !== oldName) {
+      // Rename the field key in every row's record while preserving order.
+      for (const row of model.rows) {
+        const next: { [k: string]: Value } = {};
+        for (const [k, v] of Object.entries(row.record.fields)) {
+          next[k === oldName ? name : k] = v;
+        }
+        row.record.fields = next;
+      }
+      // Migrate dirty / invalid cell keys from "rowIdx::oldName" → "rowIdx::name".
+      const remap = (k: string) =>
+        k.endsWith(`::${oldName}`)
+          ? k.slice(0, -oldName.length) + name
+          : k;
+      const nextDirty = new Set<string>();
+      for (const k of dirtyCells) nextDirty.add(remap(k));
+      dirtyCells = nextDirty;
+      const nextInvalid = new Map<string, string>();
+      for (const [k, msg] of invalidCells) nextInvalid.set(remap(k), msg);
+      invalidCells = nextInvalid;
+    }
+    schemaDirty = true;
+    editColOpen = false;
+  }
+
   function requestDeleteColumn(name: string) {
     pendingDeleteCol = name;
   }
@@ -163,16 +242,49 @@
       if (!k.endsWith(`::${name}`)) next.add(k);
     }
     dirtyCells = next;
+    // Clear any invalid markers for this column.
+    const nextInvalid = new Map<string, string>();
+    for (const [k, msg] of invalidCells) {
+      if (!k.endsWith(`::${name}`)) nextInvalid.set(k, msg);
+    }
+    invalidCells = nextInvalid;
     schemaDirty = true;
     pendingDeleteCol = null;
+  }
+
+  function validationError(raw: string, type: FieldType): string | null {
+    const text = raw.trim();
+    if (text === "") return null; // empty is always valid (null cell)
+    switch (type) {
+      case "number":
+        return Number.isFinite(Number(text)) ? null : `"${text}" is not a number`;
+      case "boolean":
+        return /^(true|false)$/i.test(text) ? null : `"${text}" must be true or false`;
+      case "date":
+        // ISO yyyy-mm-dd. Lenient — full ISO timestamp also passes.
+        return /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(text) ? null : `"${text}" must be YYYY-MM-DD`;
+      case "list":
+      case "text":
+      case "raw":
+      default:
+        return null;
+    }
   }
 
   function commitEdit(row: number, col: string, raw: string, type: FieldType) {
     const next = displayToValue(raw, type);
     const current = model.rows[row].record.fields[col] ?? ({ kind: "null" } as Value);
+    const key = cellKey(row, col);
+    const err = validationError(raw, type);
+    if (err) {
+      invalidCells.set(key, err);
+    } else {
+      invalidCells.delete(key);
+    }
+    invalidCells = new Map(invalidCells);
     if (JSON.stringify(next) === JSON.stringify(current)) return;
     model.rows[row].record.fields[col] = next;
-    dirtyCells.add(cellKey(row, col));
+    dirtyCells.add(key);
     dirtyCells = new Set(dirtyCells);
   }
 
@@ -208,6 +320,14 @@
   }
 
   async function doSave() {
+    if (invalidCells.size > 0) {
+      const n = invalidCells.size;
+      toast = {
+        kind: "error",
+        text: `${n} cell${n === 1 ? "" : "s"} fail${n === 1 ? "s" : ""} type validation — fix highlighted cells before saving.`,
+      };
+      return;
+    }
     saving = true;
     toast = null;
     try {
@@ -247,6 +367,26 @@
     }
   }
 
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Cmd/Ctrl-S → Save All
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (!saving && hasUnsaved) doSave();
+        return;
+      }
+      // Escape closes any open modal
+      if (e.key === "Escape") {
+        if (addColOpen) addColOpen = false;
+        else if (editColOpen) editColOpen = false;
+        else if (addRowOpen) addRowOpen = false;
+        else if (pendingDeleteCol !== null) pendingDeleteCol = null;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function rowLabel(rowIdx: number): string {
     const r = model.rows[rowIdx];
     if (r.source.kind === "file") return basename(r.source.path);
@@ -272,6 +412,7 @@
 
   let pathInfo = $derived(modePathSegments());
   let dirtyCount = $derived(dirtyCells.size);
+  let pendingDeleteCount = $derived(model.rows.filter((r) => r.pending_delete).length);
   let hasUnsaved = $derived(dirtyCount > 0 || schemaDirty || rowsDirty);
   let hasColumns = $derived(model.schema.columns.length > 0);
   let visibleWarnings = $derived(
@@ -343,21 +484,23 @@
     {#if hasUnsaved}
       <span class="dirty-pill" transition:fade={{ duration: 120 }}>
         <span class="dirty-dot" aria-hidden="true"></span>
-        {#if dirtyCount > 0}
-          {dirtyCount} unsaved
-        {:else if rowsDirty}
-          rows changed
-        {:else}
-          schema changed
-        {/if}
+        unsaved
       </span>
     {/if}
 
-    <button class="ghost-btn" onclick={addInlineRow} title="Add row">
+    <button class="ghost-btn" onclick={openAddColumn} title="Add column">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
-        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M2.5 4.5h11M2.5 8h7M2.5 11.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M11.5 7v4M9.5 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
       </svg>
-      <span>{model.mode.kind === "folder" ? "Add file" : "Add row"}</span>
+      <span>Column</span>
+    </button>
+    <button class="ghost-btn" onclick={addInlineRow} title={model.mode.kind === "folder" ? "Add file" : "Add row"}>
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+        <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M11.5 11v4M9.5 13h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <span>{model.mode.kind === "folder" ? "File" : "Row"}</span>
     </button>
 
     <button
@@ -365,6 +508,7 @@
       disabled={saving || !hasUnsaved}
       onclick={doSave}
       aria-busy={saving}
+      title="Save All ({navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'}+S)"
     >
       {#if saving}
         <span class="spin" aria-hidden="true"></span>
@@ -375,6 +519,7 @@
           <path d="M5.5 2.5v3.2h5V2.5M5.5 14.5v-4.4h5v4.4" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
         </svg>
         <span>Save All</span>
+        <kbd class="kbd-hint" aria-hidden="true">⌘S</kbd>
       {/if}
     </button>
   </header>
@@ -466,13 +611,48 @@
               {model.mode.kind === "folder" ? "file" : "#"}
             </th>
             {#each model.schema.columns as col (col.name)}
-              <th class="col-head">
+              <th
+                class="col-head type-{col.type}"
+                title="{col.type} field — click to edit"
+                onclick={() => openEditColumn(col)}
+              >
+                <span class="col-glyph type-{col.type}" aria-hidden="true">
+                  {#if col.type === "text"}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <path d="M2.5 4V3h9v1M7 3v8.5M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  {:else if col.type === "number"}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <path d="M5 2.5L4 11.5M9 2.5L8 11.5M2.5 5h9.5M2 9h9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  {:else if col.type === "boolean"}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <rect x="2.5" y="2.5" width="9" height="9" rx="1.6" stroke="currentColor" stroke-width="1.3"/>
+                      <path d="M5 7.4l1.6 1.5L9 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  {:else if col.type === "date"}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <rect x="2" y="3.4" width="10" height="8.6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
+                      <path d="M2 6.2h10M4.6 2v2.4M9.4 2v2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  {:else if col.type === "list"}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <circle cx="3" cy="4" r="1" fill="currentColor"/>
+                      <circle cx="3" cy="7" r="1" fill="currentColor"/>
+                      <circle cx="3" cy="10" r="1" fill="currentColor"/>
+                      <path d="M5.5 4h6M5.5 7h6M5.5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
+                      <path d="M5 3L2 7l3 4M9 3l3 4-3 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  {/if}
+                </span>
                 <span class="col-name">{col.name}</span>
-                <span class="col-type type-{col.type}">{col.type}</span>
                 <button
                   type="button"
                   class="col-delete"
-                  onclick={() => requestDeleteColumn(col.name)}
+                  onclick={(e) => { e.stopPropagation(); requestDeleteColumn(col.name); }}
                   title="Delete column"
                   aria-label="Delete column {col.name}"
                 >
@@ -527,12 +707,16 @@
               </td>
               {#each model.schema.columns as col (col.name)}
                 {@const v = row.record.fields[col.name] ?? ({ kind: "null" } as Value)}
-                {@const dirty = dirtyCells.has(cellKey(rowIdx, col.name))}
+                {@const ckey = cellKey(rowIdx, col.name)}
+                {@const dirty = dirtyCells.has(ckey)}
                 {@const empty = isEmpty(v)}
+                {@const invalidMsg = invalidCells.get(ckey)}
                 <td
                   class="cell type-{col.type}"
                   class:dirty
                   class:empty
+                  class:invalid={invalidMsg !== undefined}
+                  title={invalidMsg ?? undefined}
                 >
                   {#if row.parse_error}
                     <span class="parse-err">parse error</span>
@@ -555,6 +739,11 @@
                         </svg>
                       </span>
                     </label>
+                  {:else if col.type === "date"}
+                    <DatePicker
+                      value={cellText(rowIdx, col.name)}
+                      onChange={(next) => commitEdit(rowIdx, col.name, next, col.type)}
+                    />
                   {:else}
                     <div class="cell-edit">
                       <!-- Display layer drives column width and cell height. -->
@@ -565,12 +754,12 @@
                           {/each}
                         </div>
                       {:else if empty}
-                        <div class="display empty" aria-hidden="true">(empty)</div>
+                        <div class="display is-empty" aria-hidden="true">&#8211;</div>
                       {:else}
                         <div class="display" aria-hidden="true">{cellText(rowIdx, col.name)}</div>
                       {/if}
                       <!-- Interaction overlay: transparent text when not focused. -->
-                      {#if col.type === "number" || col.type === "date"}
+                      {#if col.type === "number"}
                         <input
                           type="text"
                           class="overlay"
@@ -621,6 +810,25 @@
               <td class="col-add-cell" aria-hidden="true"></td>
             </tr>
           {/each}
+          <tr class="add-row-tr">
+            <td class="row-head add-row-head">
+              <button
+                type="button"
+                class="add-row-plus"
+                onclick={addInlineRow}
+                title="Add {model.mode.kind === 'folder' ? 'file' : 'row'}"
+                aria-label="Add row"
+              >
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+                  <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </td>
+            {#each model.schema.columns as col (col.name)}
+              <td class="add-row-spacer" aria-hidden="true"></td>
+            {/each}
+            <td class="add-row-spacer add-row-spacer-end" aria-hidden="true"></td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -665,28 +873,66 @@
           <span>Field name</span>
           <input
             type="text"
+            bind:this={addColInput}
             bind:value={addColName}
             placeholder="e.g. status"
             autocomplete="off"
           />
         </label>
-        <label class="field">
+        <div class="field">
           <span>Type</span>
-          <select bind:value={addColType}>
-            <option value="text">text</option>
-            <option value="number">number</option>
-            <option value="boolean">boolean</option>
-            <option value="date">date</option>
-            <option value="list">list</option>
-            <option value="raw">raw</option>
-          </select>
-        </label>
+          <Select
+            options={FIELD_TYPE_OPTIONS}
+            value={addColType}
+            onChange={(v) => (addColType = v as FieldType)}
+            label="Field type"
+          />
+        </div>
         {#if addColError}
           <p class="modal-error">{addColError}</p>
         {/if}
         <div class="modal-actions">
           <button type="button" class="btn-secondary" onclick={closeAddColumn}>Cancel</button>
           <button type="submit" class="btn-primary">Add</button>
+        </div>
+      </form>
+    </div>
+  {/if}
+
+  {#if editColOpen}
+    <div class="modal-backdrop" onclick={cancelEditColumn} role="presentation"></div>
+    <div class="modal" role="dialog" aria-labelledby="edit-col-title" aria-modal="true">
+      <form onsubmit={(e) => { e.preventDefault(); confirmEditColumn(); }}>
+        <h2 id="edit-col-title">Edit column</h2>
+        <p class="modal-body">
+          Renaming rewrites the field key in every row on Save All. Changing
+          type doesn't migrate values — existing values that don't match the
+          new type will be flagged.
+        </p>
+        <label class="field">
+          <span>Field name</span>
+          <input
+            type="text"
+            bind:this={editColInput}
+            bind:value={editColName}
+            autocomplete="off"
+          />
+        </label>
+        <div class="field">
+          <span>Type</span>
+          <Select
+            options={FIELD_TYPE_OPTIONS}
+            value={editColType}
+            onChange={(v) => (editColType = v as FieldType)}
+            label="Field type"
+          />
+        </div>
+        {#if editColError}
+          <p class="modal-error">{editColError}</p>
+        {/if}
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick={cancelEditColumn}>Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
         </div>
       </form>
     </div>
@@ -705,6 +951,7 @@
           <span>Filename</span>
           <input
             type="text"
+            bind:this={addRowInput}
             bind:value={addRowFilename}
             placeholder="e.g. notes-on-x.md"
             autocomplete="off"
@@ -744,6 +991,31 @@
     height: 100vh;
     overflow: hidden;
     background: var(--mt-page-bg);
+    position: relative;
+  }
+  /* Soft warm-paper atmosphere — disappears in dark mode automatically
+     because the radial-gradient stops are alpha-weighted. */
+  .view::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        1100px 520px at 90% -10%,
+        rgba(35, 131, 226, 0.04),
+        transparent 60%
+      ),
+      radial-gradient(
+        900px 480px at -10% 110%,
+        rgba(203, 145, 47, 0.035),
+        transparent 60%
+      );
+    z-index: 0;
+  }
+  .view > * {
+    position: relative;
+    z-index: 1;
   }
 
   /* ===== Topbar ===== */
@@ -835,22 +1107,29 @@
   .dirty-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 8px 3px 7px;
-    background: var(--mt-warn-bg);
-    color: var(--mt-warn-fg);
-    border: 1px solid color-mix(in srgb, var(--mt-warn) 22%, transparent);
+    gap: 7px;
+    padding: 3px 10px 3px 8px;
+    background: transparent;
+    color: var(--mt-fg-muted);
+    border: 1px solid var(--mt-border-strong);
     border-radius: 999px;
-    font-size: 11.5px;
+    font-family: var(--mt-font-mono);
+    font-size: 10.5px;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .dirty-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--mt-warn);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--mt-warn) 22%, transparent);
+    animation: dirty-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes dirty-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mt-warn) 22%, transparent); }
+    50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--mt-warn) 8%, transparent); }
   }
 
   .save-btn {
@@ -887,6 +1166,23 @@
     border: 1.5px solid rgba(255, 255, 255, 0.35);
     border-top-color: #fff;
     animation: spin 720ms linear infinite;
+  }
+  .kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 2px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.18);
+    font-family: var(--mt-font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.86);
+  }
+  .save-btn:disabled .kbd-hint {
+    background: var(--mt-divider);
+    color: var(--mt-fg-subtle);
   }
 
   /* ===== Warnings ===== */
@@ -1013,110 +1309,172 @@
     outline-offset: 2px;
   }
 
-  /* ===== Add Column modal ===== */
+  /* ===== Modal ===== */
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(15, 15, 15, 0.32);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    background:
+      radial-gradient(80% 60% at 50% 40%, rgba(15, 15, 15, 0.22), rgba(15, 15, 15, 0.46));
+    backdrop-filter: blur(6px) saturate(1.05);
+    -webkit-backdrop-filter: blur(6px) saturate(1.05);
     z-index: 999;
-    animation: fade-in 140ms ease-out;
+    animation: fade-in 180ms ease-out;
   }
   .modal {
     position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: min(420px, calc(100vw - 32px));
+    width: min(440px, calc(100vw - 32px));
     background: var(--mt-elevated);
     color: var(--mt-fg);
     border: 1px solid var(--mt-border-strong);
-    border-radius: 8px;
-    padding: 20px 22px 16px;
+    border-radius: 12px;
+    padding: 0;
     z-index: 1000;
-    box-shadow: var(--mt-shadow-2);
-    animation: pop-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+    box-shadow: var(--mt-shadow-3);
+    animation: pop-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.05);
+  }
+  /* Hairline accent at the top — subtle wash of the brand blue.
+     Rounded only at the top corners so it follows the modal frame
+     without forcing overflow:hidden on the parent (which would clip
+     popovers like the type dropdown). */
+  .modal::before {
+    content: "";
+    display: block;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+    background: linear-gradient(90deg, transparent 0%, var(--mt-accent) 30%, var(--mt-accent) 70%, transparent 100%);
+    opacity: 0.55;
+  }
+  .modal form,
+  .modal > h2,
+  .modal > .modal-body,
+  .modal > .modal-actions {
+    padding-left: 26px;
+    padding-right: 26px;
   }
   .modal form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
+    padding-top: 22px;
+    padding-bottom: 18px;
   }
   .modal h2 {
-    margin: 0 0 4px;
+    margin: 0;
     font-family: var(--mt-font-display);
     font-weight: 600;
-    font-size: 17px;
-    letter-spacing: -0.01em;
+    font-size: 19px;
+    line-height: 1.2;
+    letter-spacing: -0.014em;
     color: var(--mt-fg);
+  }
+  .modal .modal-body {
+    margin: 0;
+    color: var(--mt-fg-muted);
+    font-size: 13px;
+    line-height: 1.55;
   }
   .modal .field {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
     font-size: 12.5px;
     color: var(--mt-fg-muted);
   }
-  .modal .field span {
+  .modal .field > span {
+    font-family: var(--mt-font-mono);
+    font-size: 10.5px;
     font-weight: 500;
-    color: var(--mt-fg);
-    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mt-fg-subtle);
   }
-  .modal input[type="text"],
-  .modal select {
+  .modal input[type="text"] {
     font: inherit;
-    font-size: 13.5px;
-    padding: 7px 10px;
+    font-size: 14px;
+    padding: 9px 12px;
     background: var(--mt-surface);
     color: var(--mt-fg);
     border: 1px solid var(--mt-border);
-    border-radius: 4px;
+    border-radius: 6px;
     outline: none;
-    transition: border-color 120ms ease, background 120ms ease;
+    transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
   }
-  .modal input[type="text"]:focus,
-  .modal select:focus {
+  .modal input[type="text"]:focus {
     border-color: var(--mt-accent);
     background: var(--mt-elevated);
+    box-shadow: 0 0 0 3px var(--mt-accent-soft);
   }
   .modal-error {
     margin: 0;
     font-size: 12.5px;
+    line-height: 1.5;
     color: var(--mt-error-fg);
     background: var(--mt-error-bg);
-    padding: 6px 10px;
-    border-radius: 4px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--mt-error) 22%, transparent);
   }
   .modal-actions {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 4px;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    padding-top: 14px;
+    padding-bottom: 0;
+    border-top: 1px solid var(--mt-divider);
+    margin-left: -26px;
+    margin-right: -26px;
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .modal-actions::before {
+    content: "esc to close";
+    font-family: var(--mt-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--mt-fg-subtle);
+    margin-right: auto;
+    padding: 2px 8px;
+    border: 1px solid var(--mt-divider);
+    border-radius: 4px;
   }
   .btn-primary,
-  .btn-secondary {
+  .btn-secondary,
+  .btn-danger {
     all: unset;
     cursor: pointer;
-    padding: 6px 14px;
+    padding: 7px 16px;
     font-size: 13px;
     font-weight: 500;
-    border-radius: 4px;
-    transition: background 120ms ease;
+    letter-spacing: -0.005em;
+    border-radius: 6px;
+    transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
   }
   .btn-primary {
     background: var(--mt-accent);
     color: #fff;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
   }
   .btn-primary:hover {
     background: var(--mt-accent-hover);
   }
+  .btn-primary:active {
+    transform: translateY(0.5px);
+  }
   .btn-danger {
     background: var(--mt-error);
     color: #fff;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
   }
   .btn-danger:hover {
     background: color-mix(in srgb, var(--mt-error) 86%, black);
+  }
+  .btn-danger:active {
+    transform: translateY(0.5px);
   }
   .modal-body {
     margin: 0;
@@ -1178,31 +1536,59 @@
     position: sticky;
     top: 0;
     z-index: 3;
-    background: var(--mt-page-bg);
+    background: var(--mt-surface);
     text-align: left;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--mt-border);
+    padding: 9px 12px 9px 10px;
+    border-bottom: 1px solid var(--mt-border-strong);
     font-weight: 500;
     color: var(--mt-fg);
     white-space: nowrap;
     max-width: 360px;
   }
+  thead::after {
+    /* fine accent rule under the header, gives the band a soft underline weight */
+    content: "";
+  }
   thead th:not(:last-child) {
     border-right: 1px solid var(--mt-divider);
   }
-  thead th .col-name {
-    display: block;
-    font-size: 12.5px;
-    color: var(--mt-fg);
+  thead th.col-head {
+    display: table-cell;
+    vertical-align: middle;
   }
-  thead th .col-type {
+  thead th.col-head .col-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 7px;
+    border-radius: 5px;
+    background: var(--mt-elevated);
+    border: 1px solid var(--mt-divider);
+    vertical-align: -5px;
+    color: var(--mt-fg-muted);
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+  /* Per-type accent — a quiet hue, only on the glyph badge */
+  thead th.col-head.type-text .col-glyph    { color: var(--mt-tag-blue-fg); background: var(--mt-tag-blue); border-color: transparent; }
+  thead th.col-head.type-number .col-glyph  { color: var(--mt-tag-green-fg); background: var(--mt-tag-green); border-color: transparent; }
+  thead th.col-head.type-boolean .col-glyph { color: var(--mt-tag-purple-fg); background: var(--mt-tag-purple); border-color: transparent; }
+  thead th.col-head.type-date .col-glyph    { color: var(--mt-tag-orange-fg); background: var(--mt-tag-orange); border-color: transparent; }
+  thead th.col-head.type-list .col-glyph    { color: var(--mt-tag-pink-fg); background: var(--mt-tag-pink); border-color: transparent; }
+  thead th.col-head.type-raw .col-glyph     { color: var(--mt-tag-gray-fg); background: var(--mt-tag-gray); border-color: transparent; }
+  thead th .col-name {
     display: inline-block;
-    margin-top: 3px;
-    font-family: var(--mt-font-mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--mt-fg-subtle);
+    font-family: var(--mt-font-display);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--mt-fg);
+    vertical-align: middle;
+  }
+  thead th.col-head:hover {
+    background: var(--mt-surface-strong);
+    cursor: pointer;
   }
   /* Per-column delete (×) — only visible on header hover. */
   thead th.col-head {
@@ -1241,9 +1627,9 @@
   /* Trailing "+" header */
   thead th.col-add {
     padding: 4px;
-    background: var(--mt-page-bg);
+    background: var(--mt-surface);
     border-right: none;
-    border-bottom: 1px solid var(--mt-border);
+    border-bottom: 1px solid var(--mt-border-strong);
     width: 38px;
   }
   .col-add-btn {
@@ -1271,6 +1657,59 @@
     border-bottom: 1px solid var(--mt-divider);
     padding: 0;
     min-height: 36px;
+  }
+
+  /* Bottom "Add row" plus, symmetric to the trailing column "+" header */
+  tr.add-row-tr td {
+    border: none;
+    background: var(--mt-page-bg);
+    padding: 0;
+  }
+  td.add-row-head {
+    background: var(--mt-surface) !important;
+    padding: 4px 6px !important;
+  }
+  .add-row-plus {
+    all: unset;
+    cursor: pointer;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--mt-fg-subtle);
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .add-row-plus:hover {
+    background: var(--mt-hover);
+    color: var(--mt-fg);
+  }
+  .add-row-plus:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 1px;
+  }
+  td.add-row-spacer {
+    height: 36px;
+    border-right: 1px solid transparent;
+  }
+
+  /* Invalid cell — soft red ring inside the cell border */
+  .cell.invalid {
+    box-shadow: inset 0 0 0 1px var(--mt-error);
+    background: color-mix(in srgb, var(--mt-error-bg) 70%, transparent) !important;
+  }
+  .cell.invalid::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--mt-error);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mt-error) 24%, transparent);
+    pointer-events: none;
   }
 
   /* Per-row delete (shown on row hover, top-right of row-head) */
@@ -1359,10 +1798,12 @@
   thead th.row-head {
     z-index: 4;
     background: var(--mt-surface);
-    text-transform: lowercase;
-    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     color: var(--mt-fg-subtle);
+    font-family: var(--mt-font-mono);
     font-size: 10px;
+    border-bottom: 1px solid var(--mt-border-strong);
   }
   td.row-head {
     min-height: 36px;
@@ -1447,9 +1888,9 @@
     font-size: 12px;
     color: var(--mt-fg-muted);
   }
-  .cell-edit .display.empty {
+  .cell-edit .display.is-empty {
     color: var(--mt-fg-subtle);
-    font-style: italic;
+    user-select: none;
   }
   .cell-edit .display.pills {
     display: flex;
@@ -1492,9 +1933,9 @@
     font-family: var(--mt-font-mono);
     font-size: 12.5px;
   }
-  .cell.type-date .cell-edit .overlay {
-    font-family: var(--mt-font-mono);
-    font-size: 12.5px;
+  /* Date cells host the custom <DatePicker> directly — no overlay/display split. */
+  .cell.type-date {
+    padding: 0;
   }
   .cell.type-raw .cell-edit .overlay {
     font-family: var(--mt-font-mono);
