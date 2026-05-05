@@ -34,6 +34,7 @@ export interface Row {
   source: RowSource;
   record: Record;
   parse_error: string | null;
+  pending_delete?: boolean;
 }
 
 export type TableMode =

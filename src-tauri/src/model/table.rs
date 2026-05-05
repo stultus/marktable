@@ -28,6 +28,10 @@ pub struct Row {
     pub record: Record,
     /// If parsing failed, the row is shown read-only with this error.
     pub parse_error: Option<String>,
+    /// True when the user has marked this row for deletion. On Save All:
+    /// folder mode deletes the file, single-file mode omits the item.
+    #[serde(default)]
+    pub pending_delete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

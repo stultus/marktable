@@ -43,6 +43,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                 },
                 record: parsed.record,
                 parse_error: None,
+                pending_delete: false,
             }),
             Err(e) => {
                 let msg = e.to_string();
@@ -58,6 +59,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                     },
                     record: Record::new(),
                     parse_error: Some(msg),
+                    pending_delete: false,
                 });
             }
         }
@@ -105,6 +107,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     source: RowSource::Inline { index: i },
                     record,
                     parse_error: None,
+                    pending_delete: false,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -135,6 +138,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     source: RowSource::Inline { index: i },
                     record,
                     parse_error: None,
+                    pending_delete: false,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -187,9 +191,6 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
     match &table.mode {
         TableMode::Folder { .. } => {
             for row in &table.rows {
-                if row.parse_error.is_some() {
-                    continue;
-                }
                 let RowSource::File {
                     path,
                     original_text,
@@ -197,6 +198,24 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
                 else {
                     continue;
                 };
+                if row.pending_delete {
+                    if path.exists() {
+                        match std::fs::remove_file(path) {
+                            Ok(()) => written.push(path.clone()),
+                            Err(e) => failures.push(SaveFailure {
+                                path: path.clone(),
+                                message: format!("delete failed: {e}"),
+                            }),
+                        }
+                    } else {
+                        // New row that was never saved — nothing to do on disk.
+                        written.push(path.clone());
+                    }
+                    continue;
+                }
+                if row.parse_error.is_some() {
+                    continue;
+                }
                 let body = extract_body(original_text);
                 let line_ending = LineEnding::detect(original_text);
                 match markdown::serialize(&row.record, &body, &schema_keys, line_ending) {
@@ -215,7 +234,12 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
             }
         }
         TableMode::JsonFile { path, .. } => {
-            let records: Vec<Record> = table.rows.iter().map(|r| r.record.clone()).collect();
+            let records: Vec<Record> = table
+                .rows
+                .iter()
+                .filter(|r| !r.pending_delete)
+                .map(|r| r.record.clone())
+                .collect();
             let indent = json_fmt::Indent::detect(
                 &std::fs::read_to_string(path).unwrap_or_default(),
             );
@@ -234,7 +258,12 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
             }
         }
         TableMode::YamlFile { path, .. } => {
-            let records: Vec<Record> = table.rows.iter().map(|r| r.record.clone()).collect();
+            let records: Vec<Record> = table
+                .rows
+                .iter()
+                .filter(|r| !r.pending_delete)
+                .map(|r| r.record.clone())
+                .collect();
             match yaml_fmt::serialize(&records, &schema_keys) {
                 Ok(out) => match write_file(path, &out) {
                     Ok(()) => written.push(path.clone()),

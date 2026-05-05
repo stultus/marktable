@@ -10,6 +10,7 @@
     type TableModel,
     type Value,
     type FieldType,
+    type Record as MtRecord,
   } from "./api";
 
   let {
@@ -35,6 +36,13 @@
 
   // Delete-column confirmation
   let pendingDeleteCol = $state<string | null>(null);
+
+  // Add Row modal (folder mode requires a filename; file mode is a one-click append)
+  let addRowOpen = $state(false);
+  let addRowFilename = $state("");
+  let addRowError = $state<string | null>(null);
+  // Tracks rows added in this session so add → delete (without saving) is purely local.
+  let rowsDirty = $state(false);
 
   const cellKey = (row: number, col: string) => `${row}::${col}`;
 
@@ -63,6 +71,77 @@
     ];
     schemaDirty = true;
     addColOpen = false;
+  }
+
+  function newRowId(): string {
+    return `new-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+  }
+
+  function emptyRecord(): MtRecord {
+    const fields: { [k: string]: Value } = {};
+    for (const c of model.schema.columns) fields[c.name] = { kind: "null" };
+    return { fields };
+  }
+
+  function addInlineRow() {
+    if (model.mode.kind === "folder") {
+      addRowFilename = "";
+      addRowError = null;
+      addRowOpen = true;
+      return;
+    }
+    const nextIndex = model.rows.length;
+    const newRow = {
+      id: newRowId(),
+      source: { kind: "inline" as const, index: nextIndex },
+      record: emptyRecord(),
+      parse_error: null,
+      pending_delete: false,
+    };
+    model.rows = [...model.rows, newRow];
+    rowsDirty = true;
+  }
+
+  function joinPath(folder: string, name: string): string {
+    const sep = folder.includes("\\") && !folder.includes("/") ? "\\" : "/";
+    const base = folder.endsWith("/") || folder.endsWith("\\")
+      ? folder.slice(0, -1)
+      : folder;
+    return `${base}${sep}${name}`;
+  }
+
+  function confirmAddFolderRow() {
+    let name = addRowFilename.trim();
+    if (!name) {
+      addRowError = "Filename is required.";
+      return;
+    }
+    if (!/\.md$/i.test(name)) name = `${name}.md`;
+    if (/[\\/]/.test(name.slice(0, -3))) {
+      addRowError = "Filename cannot contain path separators.";
+      return;
+    }
+    if (model.mode.kind !== "folder") return;
+    const fullPath = joinPath(model.mode.path, name);
+    if (model.rows.some((r) => r.source.kind === "file" && r.source.path === fullPath)) {
+      addRowError = `A row for "${name}" already exists.`;
+      return;
+    }
+    model.rows.push({
+      id: newRowId(),
+      source: { kind: "file", path: fullPath, original_text: "" },
+      record: emptyRecord(),
+      parse_error: null,
+      pending_delete: false,
+    });
+    rowsDirty = true;
+    addRowOpen = false;
+  }
+
+  function toggleDeleteRow(rowIdx: number) {
+    const r = model.rows[rowIdx];
+    r.pending_delete = !r.pending_delete;
+    rowsDirty = true;
   }
 
   function requestDeleteColumn(name: string) {
@@ -142,6 +221,13 @@
         };
         dirtyCells = new Set();
         schemaDirty = false;
+        // Drop rows that were marked pending_delete and are now gone on disk.
+        model.rows = model.rows.filter((r) => !r.pending_delete);
+        // Renumber inline rows so labels stay sequential.
+        model.rows.forEach((r, i) => {
+          if (r.source.kind === "inline") r.source = { kind: "inline", index: i };
+        });
+        rowsDirty = false;
         // Auto-dismiss success after 3.2s
         setTimeout(() => {
           if (toast?.kind === "success") toast = null;
@@ -186,7 +272,7 @@
 
   let pathInfo = $derived(modePathSegments());
   let dirtyCount = $derived(dirtyCells.size);
-  let hasUnsaved = $derived(dirtyCount > 0 || schemaDirty);
+  let hasUnsaved = $derived(dirtyCount > 0 || schemaDirty || rowsDirty);
   let hasColumns = $derived(model.schema.columns.length > 0);
   let visibleWarnings = $derived(
     model.warnings
@@ -254,16 +340,25 @@
       <span class="meta-label">{model.schema.columns.length === 1 ? "field" : "fields"}</span>
     </span>
 
-    {#if dirtyCount > 0 || schemaDirty}
+    {#if hasUnsaved}
       <span class="dirty-pill" transition:fade={{ duration: 120 }}>
         <span class="dirty-dot" aria-hidden="true"></span>
         {#if dirtyCount > 0}
           {dirtyCount} unsaved
+        {:else if rowsDirty}
+          rows changed
         {:else}
           schema changed
         {/if}
       </span>
     {/if}
+
+    <button class="ghost-btn" onclick={addInlineRow} title="Add row">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <span>{model.mode.kind === "folder" ? "Add file" : "Add row"}</span>
+    </button>
 
     <button
       class="save-btn"
@@ -335,7 +430,7 @@
 
   <!-- Grid / Empty state -->
   {#if !hasColumns}
-    <div class="empty">
+    <div class="empty-state">
       <div class="empty-card">
         <span class="empty-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
@@ -404,7 +499,7 @@
         </thead>
         <tbody>
           {#each model.rows as row, rowIdx (row.id)}
-            <tr class:errored={row.parse_error !== null}>
+            <tr class:errored={row.parse_error !== null} class:pending-delete={row.pending_delete}>
               <td class="row-head">
                 <span class="row-num">{rowIdx + 1}</span>
                 {#if model.mode.kind === "folder"}
@@ -412,9 +507,26 @@
                     {rowLabel(rowIdx)}
                   </span>
                 {/if}
+                <button
+                  type="button"
+                  class="row-delete"
+                  onclick={() => toggleDeleteRow(rowIdx)}
+                  title={row.pending_delete ? "Restore row" : "Delete row"}
+                  aria-label={row.pending_delete ? "Restore row" : "Delete row"}
+                >
+                  {#if row.pending_delete}
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                      <path d="M3 8h10M8 3v10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                      <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                  {/if}
+                </button>
               </td>
               {#each model.schema.columns as col (col.name)}
-                {@const v = fieldVal(rowIdx, col.name)}
+                {@const v = row.record.fields[col.name] ?? ({ kind: "null" } as Value)}
                 {@const dirty = dirtyCells.has(cellKey(rowIdx, col.name))}
                 {@const empty = isEmpty(v)}
                 <td
@@ -574,6 +686,35 @@
         {/if}
         <div class="modal-actions">
           <button type="button" class="btn-secondary" onclick={closeAddColumn}>Cancel</button>
+          <button type="submit" class="btn-primary">Add</button>
+        </div>
+      </form>
+    </div>
+  {/if}
+
+  {#if addRowOpen}
+    <div class="modal-backdrop" onclick={() => (addRowOpen = false)} role="presentation"></div>
+    <div class="modal" role="dialog" aria-labelledby="add-row-title" aria-modal="true">
+      <form onsubmit={(e) => { e.preventDefault(); confirmAddFolderRow(); }}>
+        <h2 id="add-row-title">New file</h2>
+        <p class="modal-body">
+          The file will be created on Save All. <code>.md</code> is appended
+          automatically if you leave it off.
+        </p>
+        <label class="field">
+          <span>Filename</span>
+          <input
+            type="text"
+            bind:value={addRowFilename}
+            placeholder="e.g. notes-on-x.md"
+            autocomplete="off"
+          />
+        </label>
+        {#if addRowError}
+          <p class="modal-error">{addRowError}</p>
+        {/if}
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick={() => (addRowOpen = false)}>Cancel</button>
           <button type="submit" class="btn-primary">Add</button>
         </div>
       </form>
@@ -811,7 +952,7 @@
   }
 
   /* ===== Empty state ===== */
-  .empty {
+  .empty-state {
     flex: 1;
     display: grid;
     place-items: center;
@@ -1132,6 +1273,73 @@
     min-height: 36px;
   }
 
+  /* Per-row delete (shown on row hover, top-right of row-head) */
+  .row-delete {
+    all: unset;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    color: var(--mt-fg-subtle);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  tr:hover .row-delete,
+  .row-delete:focus-visible,
+  tr.pending-delete .row-delete {
+    opacity: 1;
+  }
+  .row-delete:hover {
+    background: var(--mt-error-bg);
+    color: var(--mt-error);
+  }
+  tr.pending-delete .row-delete {
+    color: var(--mt-error);
+  }
+  /* Strikethrough + dim a row marked for deletion. Cells stay editable so the
+     user can change their mind without losing data. */
+  tr.pending-delete td {
+    background: var(--mt-error-bg);
+    opacity: 0.55;
+    text-decoration: line-through;
+    text-decoration-color: var(--mt-error);
+  }
+  tr.pending-delete td.row-head {
+    background: var(--mt-error-bg);
+  }
+
+  /* Toolbar "Add row" button (ghost variant) */
+  .ghost-btn {
+    all: unset;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    color: var(--mt-fg-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+    border-radius: 4px;
+    border: 1px solid var(--mt-border);
+    background: var(--mt-surface);
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .ghost-btn:hover {
+    background: var(--mt-surface-strong);
+    color: var(--mt-fg);
+    border-color: var(--mt-border-strong);
+  }
+  .ghost-btn:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: 2px;
+  }
+
   /* Sticky row-head column (filename / index) */
   th.row-head,
   td.row-head {
@@ -1139,7 +1347,7 @@
     left: 0;
     z-index: 2;
     background: var(--mt-surface);
-    padding: 9px 10px 9px 12px;
+    padding: 9px 28px 9px 12px;
     max-width: 280px;
     font-family: var(--mt-font-mono);
     font-size: 11.5px;
