@@ -1,19 +1,61 @@
 <script lang="ts">
-  import { pickFolder, pickFile, openFolder, openFile, type TableModel } from "./api";
+  import { onMount } from "svelte";
+  import {
+    pickFolder,
+    pickFile,
+    openFolder,
+    openFile,
+    addRecent,
+    getRecents,
+    removeRecent,
+    type TableModel,
+    type RecentItem,
+  } from "./api";
 
   let { onOpen }: { onOpen: (t: TableModel) => void } = $props();
   let busy = $state(false);
   let error = $state<string | null>(null);
   let busyKind = $state<"folder" | "file" | null>(null);
+  let recents = $state<RecentItem[]>([]);
+
+  onMount(async () => {
+    try {
+      recents = await getRecents();
+    } catch {
+      // Recents store may not exist yet on first launch — ignore.
+      recents = [];
+    }
+  });
+
+  function basename(path: string): string {
+    const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return i >= 0 ? path.slice(i + 1) : path;
+  }
+  function dirname(path: string): string {
+    const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return i >= 0 ? path.slice(0, i) : "";
+  }
 
   async function chooseFolder() {
     error = null;
     const path = await pickFolder();
     if (!path) return;
+    await openFolderPath(path);
+  }
+
+  async function chooseFile() {
+    error = null;
+    const path = await pickFile();
+    if (!path) return;
+    await openFilePath(path);
+  }
+
+  async function openFolderPath(path: string) {
     busy = true;
     busyKind = "folder";
     try {
       const table = await openFolder(path);
+      try { await addRecent(path, "folder"); } catch {}
       onOpen(table);
     } catch (e) {
       error = String(e);
@@ -23,14 +65,13 @@
     }
   }
 
-  async function chooseFile() {
-    error = null;
-    const path = await pickFile();
-    if (!path) return;
+  async function openFilePath(path: string) {
     busy = true;
     busyKind = "file";
     try {
       const table = await openFile(path);
+      const kind = path.toLowerCase().endsWith(".json") ? "json_file" : "yaml_file";
+      try { await addRecent(path, kind); } catch {}
       onOpen(table);
     } catch (e) {
       error = String(e);
@@ -38,6 +79,23 @@
       busy = false;
       busyKind = null;
     }
+  }
+
+  async function openRecent(item: RecentItem) {
+    if (!item.exists) {
+      error = `${basename(item.path)} no longer exists at this path.`;
+      return;
+    }
+    error = null;
+    if (item.kind === "folder") await openFolderPath(item.path);
+    else await openFilePath(item.path);
+  }
+
+  async function dropRecent(path: string) {
+    try {
+      await removeRecent(path);
+      recents = recents.filter((r) => r.path !== path);
+    } catch {}
   }
 </script>
 
@@ -135,6 +193,69 @@
       </span>
     </button>
   </section>
+
+  {#if recents.length > 0}
+    <section class="recents" aria-label="Recent">
+      <header class="recents-head">
+        <span class="recents-label">Recent</span>
+      </header>
+      <ul class="recents-list">
+        {#each recents as item (item.path)}
+          <li
+            class="recent"
+            class:missing={!item.exists}
+          >
+            <button
+              type="button"
+              class="recent-main"
+              disabled={busy}
+              onclick={() => openRecent(item)}
+              title={item.path}
+            >
+              <span class="recent-icon" aria-hidden="true">
+                {#if item.kind === "folder"}
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+                    <path
+                      d="M1.5 4.4c0-.5.4-.9.9-.9h2.95c.24 0 .47.1.64.27L7.1 4.85c.17.17.4.27.64.27H13.6c.5 0 .9.4.9.9v6.18c0 .5-.4.9-.9.9H2.4a.9.9 0 01-.9-.9V4.4z"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+                    <path
+                      d="M9 1.8H4.2a.9.9 0 00-.9.9v10.6c0 .5.4.9.9.9h7.6a.9.9 0 00.9-.9V5.4L9 1.8z"
+                      stroke="currentColor"
+                      stroke-width="1.3"
+                      stroke-linejoin="round"
+                    />
+                    <path d="M9 1.8v3.6h3.6" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                  </svg>
+                {/if}
+              </span>
+              <span class="recent-body">
+                <span class="recent-name">{basename(item.path)}{#if !item.exists}<span class="recent-missing">— missing</span>{/if}</span>
+                <span class="recent-dir">{dirname(item.path)}</span>
+              </span>
+              <span class="recent-kind">{item.kind === "folder" ? "folder" : item.kind === "json_file" ? ".json" : ".yaml"}</span>
+            </button>
+            <button
+              type="button"
+              class="recent-remove"
+              onclick={() => dropRecent(item.path)}
+              aria-label="Remove from recent"
+              title="Remove from recent"
+            >
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if error}
     <div class="error" role="alert">
@@ -357,6 +478,149 @@
     transition:
       transform 200ms ease,
       color 200ms ease;
+  }
+
+  /* Recent items */
+  .recents {
+    margin-top: 28px;
+    animation: rise 480ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+    animation-delay: 320ms;
+  }
+  .recents-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 4px 8px;
+  }
+  .recents-label {
+    font-family: var(--mt-font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mt-fg-subtle);
+  }
+  .recents-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--mt-divider);
+    border: 1px solid var(--mt-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .recent {
+    display: flex;
+    align-items: stretch;
+    background: var(--mt-page-bg);
+    transition: background 120ms ease;
+  }
+  .recent:hover {
+    background: var(--mt-surface);
+  }
+  .recent-main {
+    all: unset;
+    flex: 1;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    color: var(--mt-fg);
+    min-width: 0;
+  }
+  .recent-main:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: -2px;
+    border-radius: 4px;
+  }
+  .recent-main:disabled {
+    cursor: progress;
+    opacity: 0.55;
+  }
+  .recent-icon {
+    color: var(--mt-fg-subtle);
+    display: inline-flex;
+  }
+  .recent:hover .recent-icon {
+    color: var(--mt-fg-muted);
+  }
+  .recent-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .recent-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--mt-fg);
+    letter-spacing: -0.005em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-missing {
+    margin-left: 8px;
+    font-family: var(--mt-font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--mt-error);
+  }
+  .recent-dir {
+    font-family: var(--mt-font-mono);
+    font-size: 11px;
+    color: var(--mt-fg-subtle);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-kind {
+    font-family: var(--mt-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--mt-fg-subtle);
+    padding: 2px 7px;
+    border: 1px solid var(--mt-divider);
+    border-radius: 999px;
+  }
+  .recent.missing .recent-name,
+  .recent.missing .recent-dir,
+  .recent.missing .recent-icon {
+    color: var(--mt-fg-subtle);
+  }
+  .recent.missing {
+    opacity: 0.78;
+  }
+
+  .recent-remove {
+    all: unset;
+    cursor: pointer;
+    width: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mt-fg-subtle);
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .recent:hover .recent-remove,
+  .recent-remove:focus-visible {
+    opacity: 1;
+  }
+  .recent-remove:hover {
+    background: var(--mt-error-bg);
+    color: var(--mt-error);
+  }
+  .recent-remove:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: -2px;
   }
 
   /* Inline error */

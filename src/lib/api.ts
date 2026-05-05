@@ -83,6 +83,32 @@ export async function saveAll(table: TableModel): Promise<SaveResult> {
   return await invoke<SaveResult>("save_all", { table });
 }
 
+export type RecentKind = "folder" | "json_file" | "yaml_file";
+
+export interface RecentItem {
+  path: string;
+  kind: RecentKind;
+  exists: boolean;
+}
+
+export async function getRecents(): Promise<RecentItem[]> {
+  return await invoke<RecentItem[]>("get_recents");
+}
+
+export async function addRecent(path: string, kind: RecentKind): Promise<void> {
+  await invoke("add_recent", { path, kind });
+}
+
+export async function removeRecent(path: string): Promise<void> {
+  await invoke("remove_recent", { path });
+}
+
+export function modeToRecentKind(mode: TableMode): RecentKind {
+  if (mode.kind === "folder") return "folder";
+  if (mode.kind === "json_file") return "json_file";
+  return "yaml_file";
+}
+
 export function valueToDisplay(v: Value): string {
   switch (v.kind) {
     case "null":
