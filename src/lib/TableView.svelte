@@ -525,6 +525,83 @@
     }
   }
 
+  /** Replace a list cell's value with the given items. Empty list collapses
+   *  to Value::Null so YAML/JSON write a bare null instead of an empty array. */
+  function setListField(rowIdx: number, colName: string, items: string[]) {
+    const current =
+      model.rows[rowIdx].record.fields[colName] ?? ({ kind: "null" } as Value);
+    const next: Value =
+      items.length === 0
+        ? { kind: "null" }
+        : {
+            kind: "list",
+            value: items.map((s) => ({ kind: "string", value: s }) as Value),
+          };
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+    model.rows[rowIdx].record.fields[colName] = next;
+    model.rows[rowIdx].dirty = true;
+    const key = cellKey(rowIdx, colName);
+    dirtyCells.add(key);
+    dirtyCells = new Set(dirtyCells);
+  }
+  function listAddItem(rowIdx: number, colName: string, raw: string) {
+    const text = raw.trim();
+    if (text === "") return;
+    const v = model.rows[rowIdx].record.fields[colName];
+    const current =
+      v?.kind === "list" ? v.value.map((x) => valueToDisplay(x)) : [];
+    setListField(rowIdx, colName, [...current, text]);
+  }
+  function removeListItem(rowIdx: number, colName: string, idx: number) {
+    const v = model.rows[rowIdx].record.fields[colName];
+    if (v?.kind !== "list") return;
+    const current = v.value.map((x) => valueToDisplay(x));
+    current.splice(idx, 1);
+    setListField(rowIdx, colName, current);
+  }
+  function listKeyDown(
+    e: KeyboardEvent,
+    rowIdx: number,
+    colName: string,
+    items: string[],
+  ) {
+    const target = e.currentTarget as HTMLInputElement;
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      listAddItem(rowIdx, colName, target.value);
+      target.value = "";
+    } else if (
+      e.key === "Backspace" &&
+      target.value === "" &&
+      items.length > 0
+    ) {
+      e.preventDefault();
+      removeListItem(rowIdx, colName, items.length - 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      target.value = "";
+      target.blur();
+    }
+  }
+  function listBlur(e: FocusEvent, rowIdx: number, colName: string) {
+    const target = e.currentTarget as HTMLInputElement;
+    if (target.value.trim() !== "") {
+      listAddItem(rowIdx, colName, target.value);
+      target.value = "";
+    }
+  }
+  function focusListInput(e: MouseEvent) {
+    // Click anywhere in the cell shell focuses the trailing input. Chip
+    // × buttons handle their own click via stopPropagation.
+    const target = e.target as HTMLElement;
+    if (target.closest(".list-chip-x")) return;
+    if (target.closest(".list-add")) return;
+    const input = (e.currentTarget as HTMLElement).querySelector<HTMLInputElement>(
+      ".list-add",
+    );
+    input?.focus();
+  }
+
   /** Cycle a boolean cell: null → true → false → null. Bypasses commitEdit's
    *  text→Value parsing because we already know the next Value directly. */
   function cycleBool(row: number, col: string, current: Value) {
@@ -1174,16 +1251,47 @@
                       value={cellText(rowIdx, col.name)}
                       onChange={(next) => commitEdit(rowIdx, col.name, next, col.type)}
                     />
+                  {:else if col.type === "list"}
+                    {@const items = v.kind === "list" ? v.value.map(valueToDisplay) : []}
+                    <div
+                      class="list-cell"
+                      onclick={(e) => focusListInput(e)}
+                      onkeydown={(e) => {
+                        // Forward keys from the cell shell to the inner input.
+                        if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).querySelector<HTMLInputElement>(".list-add")?.focus();
+                      }}
+                      role="presentation"
+                    >
+                      {#each items as item, idx (item + "::" + idx)}
+                        <span class="list-chip" data-color={tagColor(item)}>
+                          <span class="list-chip-text">{item}</span>
+                          <button
+                            type="button"
+                            class="list-chip-x"
+                            onclick={(e) => { e.stopPropagation(); removeListItem(rowIdx, col.name, idx); }}
+                            aria-label="Remove {item}"
+                            tabindex="-1"
+                          >
+                            <svg viewBox="0 0 12 12" width="9" height="9" fill="none">
+                              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                            </svg>
+                          </button>
+                        </span>
+                      {/each}
+                      <input
+                        type="text"
+                        class="list-add"
+                        placeholder={items.length === 0 ? "Add item…" : ""}
+                        onkeydown={(e) => listKeyDown(e, rowIdx, col.name, items)}
+                        onblur={(e) => listBlur(e, rowIdx, col.name)}
+                      />
+                    </div>
                   {:else}
                     <div class="cell-edit">
-                      <!-- Display layer drives column width and cell height. -->
-                      {#if col.type === "list" && v.kind === "list" && v.value.length > 0}
-                        <div class="display pills" aria-hidden="true">
-                          {#each listItems(v) as t (t)}
-                            <span class="pill" data-color={tagColor(t)}>{t}</span>
-                          {/each}
-                        </div>
-                      {:else if empty}
+                      <!-- Display layer drives column width and cell height.
+                           List cells are handled in their own branch above and
+                           never reach this branch. -->
+                      {#if empty}
                         <div class="display is-empty" aria-hidden="true">{emptyPlaceholderFor(col.type)}</div>
                       {:else}
                         <div class="display" aria-hidden="true">{cellText(rowIdx, col.name)}</div>
@@ -2750,44 +2858,93 @@
     color: var(--mt-fg-subtle);
   }
 
-  .pill {
-    display: inline-block;
-    padding: 1px 7px;
+  /* List cell — chip pills with × removal + trailing add-input. Replaces
+     the previous "comma-separated textarea" pattern. The cell is one big
+     click target that focuses the trailing input. Backspace on an empty
+     input removes the last chip. */
+  .list-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 10px;
+    min-height: 36px;
+    align-items: center;
+    cursor: text;
+  }
+  .list-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 4px 1px 7px;
     border-radius: 3px;
     font-size: 11.5px;
     line-height: 17px;
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .pill[data-color="blue"] {
+  .list-chip-x {
+    all: unset;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    color: inherit;
+    opacity: 0.5;
+    transition: opacity 100ms ease, background 100ms ease;
+  }
+  .list-chip:hover .list-chip-x,
+  .list-chip-x:focus-visible {
+    opacity: 1;
+  }
+  .list-chip-x:hover {
+    background: rgba(0, 0, 0, 0.12);
+  }
+  .list-add {
+    all: unset;
+    flex: 1;
+    min-width: 60px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--mt-fg);
+    cursor: text;
+    padding: 1px 2px;
+  }
+  .list-add::placeholder {
+    color: var(--mt-fg-subtle);
+  }
+
+  .list-chip[data-color="blue"] {
     background: var(--mt-tag-blue);
     color: var(--mt-tag-blue-fg);
   }
-  .pill[data-color="green"] {
+  .list-chip[data-color="green"] {
     background: var(--mt-tag-green);
     color: var(--mt-tag-green-fg);
   }
-  .pill[data-color="yellow"] {
+  .list-chip[data-color="yellow"] {
     background: var(--mt-tag-yellow);
     color: var(--mt-tag-yellow-fg);
   }
-  .pill[data-color="orange"] {
+  .list-chip[data-color="orange"] {
     background: var(--mt-tag-orange);
     color: var(--mt-tag-orange-fg);
   }
-  .pill[data-color="red"] {
+  .list-chip[data-color="red"] {
     background: var(--mt-tag-red);
     color: var(--mt-tag-red-fg);
   }
-  .pill[data-color="purple"] {
+  .list-chip[data-color="purple"] {
     background: var(--mt-tag-purple);
     color: var(--mt-tag-purple-fg);
   }
-  .pill[data-color="pink"] {
+  .list-chip[data-color="pink"] {
     background: var(--mt-tag-pink);
     color: var(--mt-tag-pink-fg);
   }
-  .pill[data-color="gray"] {
+  .list-chip[data-color="gray"] {
     background: var(--mt-tag-gray);
     color: var(--mt-tag-gray-fg);
   }
