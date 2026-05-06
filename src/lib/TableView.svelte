@@ -517,6 +517,30 @@
     }
   }
 
+  /** Cycle a boolean cell: null → true → false → null. Bypasses commitEdit's
+   *  text→Value parsing because we already know the next Value directly. */
+  function cycleBool(row: number, col: string, current: Value) {
+    let next: Value;
+    if (current.kind !== "bool") {
+      next = { kind: "bool", value: true };
+    } else if (current.value) {
+      next = { kind: "bool", value: false };
+    } else {
+      next = { kind: "null" };
+    }
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+    const key = cellKey(row, col);
+    model.rows[row].record.fields[col] = next;
+    model.rows[row].dirty = true;
+    dirtyCells.add(key);
+    dirtyCells = new Set(dirtyCells);
+    // Boolean values are always valid for a boolean column.
+    if (invalidCells.has(key)) {
+      invalidCells.delete(key);
+      invalidCells = new Map(invalidCells);
+    }
+  }
+
   function commitEdit(row: number, col: string, raw: string, type: FieldType) {
     const next = displayToValue(raw, type);
     const current = model.rows[row].record.fields[col] ?? ({ kind: "null" } as Value);
@@ -1076,24 +1100,28 @@
                   {#if row.parse_error}
                     <span class="parse-err">parse error</span>
                   {:else if col.type === "boolean"}
-                    <label class="check-wrap">
-                      <input
-                        type="checkbox"
-                        checked={v.kind === "bool" && v.value}
-                        onchange={(e) =>
-                          commitEdit(
-                            rowIdx,
-                            col.name,
-                            (e.currentTarget as HTMLInputElement).checked ? "true" : "false",
-                            col.type,
-                          )}
-                      />
-                      <span class="check-box" aria-hidden="true">
-                        <svg viewBox="0 0 12 12" width="10" height="10" fill="none">
-                          <path d="M2.5 6.2l2.4 2.3L9.5 3.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                    <button
+                      type="button"
+                      class="bool-cell"
+                      class:bool-true={v.kind === "bool" && v.value}
+                      class:bool-false={v.kind === "bool" && !v.value}
+                      class:bool-null={v.kind === "null"}
+                      onclick={() => cycleBool(rowIdx, col.name, v)}
+                      title="Click to cycle — empty → true → false"
+                      aria-label="{col.name}: {v.kind === 'bool' ? (v.value ? 'true' : 'false') : 'empty'}. Click to cycle."
+                    >
+                      {#if v.kind === "bool" && v.value}
+                        <svg viewBox="0 0 14 14" width="12" height="12" fill="none" aria-hidden="true">
+                          <path d="M3 7.5l2.4 2.3L11 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                      </span>
-                    </label>
+                      {:else if v.kind === "bool" && !v.value}
+                        <svg viewBox="0 0 14 14" width="11" height="11" fill="none" aria-hidden="true">
+                          <path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                      {:else}
+                        <span class="bool-null-glyph" aria-hidden="true">–</span>
+                      {/if}
+                    </button>
                   {:else if col.type === "date"}
                     <DatePicker
                       value={cellText(rowIdx, col.name)}
@@ -2566,44 +2594,40 @@
     color: var(--mt-fg-subtle);
   }
 
-  /* Boolean checkbox — Notion-ish square */
-  .check-wrap {
+  /* Three-state boolean cell. The previous binary checkbox conflated null
+     with false; this version cycles null → true → false → null on click,
+     showing a typed glyph for each state. Stays a single-tap target so
+     it's still keyboard-friendly via Enter/Space. */
+  .bool-cell {
+    all: unset;
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 100%;
     height: 100%;
-    cursor: pointer;
-    position: relative;
+    min-height: 36px;
+    color: var(--mt-fg-subtle);
+    font-family: var(--mt-font-mono);
+    font-size: 13px;
+    transition: background 120ms ease, color 120ms ease;
   }
-  .check-wrap input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
+  .bool-cell:hover {
+    background: var(--mt-hover);
   }
-  .check-box {
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    border: 1.4px solid var(--mt-border-strong);
-    background: var(--mt-elevated);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: transparent;
-    transition: background 120ms ease, border-color 120ms ease;
+  .bool-cell:focus-visible {
+    outline: 2px solid var(--mt-accent);
+    outline-offset: -2px;
   }
-  .check-wrap input:checked + .check-box {
-    background: var(--mt-accent);
-    border-color: var(--mt-accent);
-    color: #fff;
+  .bool-cell.bool-true {
+    color: var(--mt-success);
   }
-  .check-wrap input:focus-visible + .check-box {
-    box-shadow: 0 0 0 2px var(--mt-accent-soft);
+  .bool-cell.bool-false {
+    color: var(--mt-fg-muted);
   }
-  .check-wrap:hover .check-box {
-    border-color: var(--mt-fg-muted);
+  .bool-cell.bool-null .bool-null-glyph {
+    font-style: italic;
+    color: var(--mt-fg-subtle);
   }
 
   .pill {
