@@ -45,6 +45,9 @@
   // listing each {path, message}.
   let saveFailures = $state<{ path: string; message: string }[]>([]);
   let saveFailuresOpen = $state(false);
+  // Confirm-discard prompt — appears when the user clicks Close while there
+  // are unsaved changes. Direct close (no unsaved) skips the prompt.
+  let confirmCloseOpen = $state(false);
 
   // Add Column modal state
   let addColOpen = $state(false);
@@ -672,6 +675,25 @@
     restoreFocus();
   }
 
+  /** Wraps the parent's onClose: if there are unsaved changes, show a
+   *  confirm-discard prompt. If clean, close immediately. */
+  function requestClose() {
+    if (hasUnsaved) {
+      captureTrigger();
+      confirmCloseOpen = true;
+    } else {
+      onClose();
+    }
+  }
+  function cancelClose() {
+    confirmCloseOpen = false;
+    restoreFocus();
+  }
+  function confirmDiscardAndClose() {
+    confirmCloseOpen = false;
+    onClose();
+  }
+
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       // Cmd/Ctrl-S → Save All
@@ -696,6 +718,9 @@
           restoreFocus();
         } else if (saveFailuresOpen) {
           saveFailuresOpen = false;
+          restoreFocus();
+        } else if (confirmCloseOpen) {
+          confirmCloseOpen = false;
           restoreFocus();
         }
       }
@@ -801,7 +826,7 @@
 <div class="view">
   <!-- Topbar -->
   <header class="topbar">
-    <button class="icon-btn" onclick={onClose} aria-label="Close">
+    <button class="icon-btn" onclick={requestClose} aria-label="Close">
       <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
         <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
@@ -1297,6 +1322,33 @@
           <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
+    </div>
+  {/if}
+
+  {#if confirmCloseOpen}
+    <div class="modal-backdrop" onclick={cancelClose} role="presentation"></div>
+    <div class="modal modal-destructive" use:trapFocus role="alertdialog" aria-labelledby="discard-title" aria-modal="true">
+      <header class="modal-destructive-head">
+        <span class="modal-destructive-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none">
+            <path d="M8 1.5l7 12.5H1L8 1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M8 6.5v3.5M8 12v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <h2 id="discard-title">Discard unsaved changes?</h2>
+      </header>
+      <div class="modal-destructive-body">
+        <p>
+          You have <strong>{dirtyBreakdown}</strong>. Closing now will discard them.
+        </p>
+        <p class="modal-destructive-meta">
+          Cancel to return to the editor and Save All.
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick={cancelClose}>Cancel</button>
+        <button type="button" class="btn-danger" onclick={confirmDiscardAndClose}>Discard &amp; close</button>
+      </div>
     </div>
   {/if}
 
