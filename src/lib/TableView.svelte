@@ -1440,23 +1440,20 @@
             </tr>
           {/if}
           <tr class="add-row-tr">
-            <td class="row-head add-row-head">
+            <td class="add-row-cell" colspan={model.schema.columns.length + 2}>
               <button
                 type="button"
-                class="add-row-plus"
+                class="add-row-full"
                 onclick={addInlineRow}
                 title="Add {model.mode.kind === 'folder' ? 'file' : 'row'}"
-                aria-label="Add row"
+                aria-label="Add {model.mode.kind === 'folder' ? 'file' : 'row'}"
               >
-                <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
                   <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
                 </svg>
+                <span>Add {model.mode.kind === "folder" ? "file" : "row"}</span>
               </button>
             </td>
-            {#each model.schema.columns as col (col.name)}
-              <td class="add-row-spacer" aria-hidden="true"></td>
-            {/each}
-            <td class="add-row-spacer add-row-spacer-end" aria-hidden="true"></td>
           </tr>
         </tbody>
       </table>
@@ -2551,39 +2548,45 @@
     font-weight: 500;
   }
 
-  /* Bottom "Add row" plus, symmetric to the trailing column "+" header */
+  /* Full-width "Add row" trigger spanning every column. Sits at the
+     bottom of the tbody as a dashed-top-border strip — reads as a
+     clickable add-row footer rather than a per-cell affordance. */
   tr.add-row-tr td {
     border: none;
     background: var(--mt-page-bg);
     padding: 0;
   }
-  td.add-row-head {
-    background: var(--mt-surface) !important;
-    padding: 4px 6px !important;
+  td.add-row-cell {
+    background: var(--mt-page-bg);
+    padding: 0;
+    /* The cell itself is empty visually; the inner button paints the strip. */
   }
-  .add-row-plus {
+  .add-row-full {
     all: unset;
     cursor: pointer;
-    width: 26px;
-    height: 26px;
-    display: inline-flex;
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    gap: 8px;
+    padding: 10px 14px;
     color: var(--mt-fg-subtle);
-    transition: background 120ms ease, color 120ms ease;
+    font-family: var(--mt-font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    border-top: 1px dashed var(--mt-border-strong);
+    background: transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
   }
-  .add-row-plus:hover {
+  .add-row-full:hover {
     background: var(--mt-hover);
     color: var(--mt-fg);
+    border-top-color: var(--mt-fg-subtle);
   }
-  .add-row-plus:focus-visible {
+  .add-row-full:focus-visible {
     outline: 2px solid var(--mt-accent);
-    outline-offset: 1px;
-  }
-  td.add-row-spacer {
-    height: 36px;
-    border-right: 1px solid transparent;
+    outline-offset: -2px;
   }
 
   /* Invalid cell — soft red ring inside the cell border */

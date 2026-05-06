@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { animate, stagger } from "animejs";
   import {
     pickFolder,
     pickFile,
@@ -17,6 +18,7 @@
   let error = $state<string | null>(null);
   let busyKind = $state<"folder" | "file" | null>(null);
   let recents = $state<RecentItem[]>([]);
+  let heroEl = $state<SVGSVGElement | null>(null);
 
   onMount(async () => {
     try {
@@ -25,6 +27,95 @@
       // Recents store may not exist yet on first launch — ignore.
       recents = [];
     }
+
+    // Skip the orchestrated reveal entirely if the user wants reduced motion.
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      document.querySelectorAll<HTMLElement>(".reveal").forEach((el) => {
+        el.style.opacity = "1";
+        el.style.transform = "none";
+      });
+      return;
+    }
+
+    // The signature reveal: scattered "files" snap into a tidy table.
+    if (heroEl) {
+      // Phase 1 — outer card pops in
+      animate(".hero-frame", {
+        opacity: [0, 1],
+        scale: [0.92, 1],
+        duration: 480,
+        ease: "out(3)",
+      });
+      // Phase 2 — header band slides in from the top
+      animate(".hero-header-band", {
+        opacity: [0, 1],
+        translateY: [-6, 0],
+        delay: 200,
+        duration: 360,
+        ease: "outQuart",
+      });
+      // Phase 3 — column type-glyph badges stagger in
+      animate(".hero-glyph", {
+        opacity: [0, 1],
+        scale: [0.4, 1],
+        delay: stagger(70, { start: 360 }),
+        duration: 380,
+        ease: "out(2)",
+      });
+      // Phase 4 — grid lines draw in (interior only — outer is the .hero-frame)
+      animate(".hero-line", {
+        opacity: [0, 1],
+        scaleX: [0.2, 1],
+        scaleY: [0.2, 1],
+        delay: stagger(50, { start: 580 }),
+        duration: 320,
+        ease: "outQuart",
+      });
+      // Phase 5 — data cell bars stream in left-to-right
+      animate(".hero-cell", {
+        opacity: [0, 1],
+        translateX: [-12, 0],
+        delay: stagger(60, { start: 780 }),
+        duration: 340,
+        ease: "outQuart",
+      });
+      // Phase 6 — accent highlight cell pulses in
+      animate(".hero-highlight", {
+        opacity: [0, 0.55, 0.35],
+        scale: [0.7, 1.04, 1],
+        delay: 1180,
+        duration: 720,
+        ease: "outQuart",
+      });
+      // The text caret: fade in once, then loop a square-wave blink forever
+      // (real text cursors snap on/off rather than fading, so duration:0 on
+      // each transition is intentional).
+      animate(".hero-cursor", {
+        opacity: [0, 1],
+        delay: 1500,
+        duration: 200,
+        ease: "linear",
+        onComplete: () => {
+          animate(".hero-cursor", {
+            keyframes: [
+              { opacity: 1, duration: 530 },
+              { opacity: 0, duration: 530 },
+            ],
+            loop: true,
+          });
+        },
+      });
+    }
+
+    // Title + cards fade up after the hero finishes drawing.
+    animate(".reveal", {
+      opacity: [0, 1],
+      translateY: [10, 0],
+      delay: stagger(80, { start: 1500 }),
+      duration: 500,
+      ease: "outQuart",
+    });
   });
 
   function basename(path: string): string {
@@ -113,13 +204,99 @@
   </header>
 
   <section class="hero">
-    <h1>Edit structured content like a spreadsheet.</h1>
+    <!-- Banner-aspect mini table (≈7:1). Renders ~110px tall at the full
+         content width, so it sits as a header strip rather than a hero
+         block that eats the viewport. -->
+    <svg
+      bind:this={heroEl}
+      class="hero-svg"
+      viewBox="0 0 700 100"
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label="Animated illustration of a table strip"
+    >
+      <!-- Outer card -->
+      <rect
+        class="hero-frame"
+        x="8"
+        y="8"
+        width="684"
+        height="84"
+        rx="8"
+        fill="var(--mt-elevated)"
+        stroke="var(--mt-border-strong)"
+        stroke-width="1.2"
+      />
+      <!-- Header band -->
+      <path
+        class="hero-header-band"
+        d="M 16 8 H 684 A 8 8 0 0 1 692 16 V 36 H 8 V 16 A 8 8 0 0 1 16 8 Z"
+        fill="var(--mt-surface)"
+      />
+      <!-- Header divider -->
+      <line class="hero-line" x1="8" y1="36" x2="692" y2="36"
+            stroke="var(--mt-border-strong)" stroke-width="1.2"/>
+      <!-- Vertical column dividers — 5 columns -->
+      <line class="hero-line" x1="144" y1="8" x2="144" y2="92"
+            stroke="var(--mt-divider)" stroke-width="1"/>
+      <line class="hero-line" x1="280" y1="8" x2="280" y2="92"
+            stroke="var(--mt-divider)" stroke-width="1"/>
+      <line class="hero-line" x1="416" y1="8" x2="416" y2="92"
+            stroke="var(--mt-divider)" stroke-width="1"/>
+      <line class="hero-line" x1="552" y1="8" x2="552" y2="92"
+            stroke="var(--mt-divider)" stroke-width="1"/>
+      <!-- Type-glyph badges -->
+      <rect class="hero-glyph" x="20" y="16" width="16" height="14" rx="3"
+            fill="var(--mt-tag-blue)"/>
+      <rect class="hero-glyph" x="156" y="16" width="16" height="14" rx="3"
+            fill="var(--mt-tag-green)"/>
+      <rect class="hero-glyph" x="292" y="16" width="16" height="14" rx="3"
+            fill="var(--mt-tag-purple)"/>
+      <rect class="hero-glyph" x="428" y="16" width="16" height="14" rx="3"
+            fill="var(--mt-tag-orange)"/>
+      <rect class="hero-glyph" x="564" y="16" width="16" height="14" rx="3"
+            fill="var(--mt-tag-pink)"/>
+      <!-- Highlighted cell (col 2) — the "selected cell" -->
+      <rect
+        class="hero-highlight"
+        x="145"
+        y="37"
+        width="135"
+        height="55"
+        fill="var(--mt-accent-soft)"
+        stroke="var(--mt-accent)"
+        stroke-width="1.4"
+      />
+      <!-- Single row of content bars — keeps the strip readable at banner aspect -->
+      <rect class="hero-cell" x="20" y="61" width="92" height="6" rx="3"
+            fill="var(--mt-fg-muted)"/>
+      <rect class="hero-cell" x="156" y="61" width="100" height="6" rx="3"
+            fill="var(--mt-accent)"/>
+      <rect class="hero-cell" x="292" y="61" width="86" height="6" rx="3"
+            fill="var(--mt-fg-muted)"/>
+      <rect class="hero-cell" x="428" y="61" width="78" height="6" rx="3"
+            fill="var(--mt-fg-muted)"/>
+      <rect class="hero-cell" x="564" y="61" width="100" height="6" rx="3"
+            fill="var(--mt-fg-muted)"/>
+      <!-- Editing cursor at the trailing edge of the highlighted cell's bar -->
+      <line
+        class="hero-cursor"
+        x1="258"
+        y1="56"
+        x2="258"
+        y2="74"
+        stroke="var(--mt-accent)"
+        stroke-width="1.4"
+        stroke-linecap="round"
+      />
+    </svg>
+    <h1 class="reveal">Edit structured content like a spreadsheet.</h1>
   </section>
 
   <section class="choices" aria-label="Open">
     <button
       type="button"
-      class="choice"
+      class="choice reveal"
       onclick={chooseFolder}
       disabled={busy}
       aria-busy={busyKind === "folder"}
@@ -150,7 +327,7 @@
 
     <button
       type="button"
-      class="choice"
+      class="choice reveal"
       onclick={chooseFile}
       disabled={busy}
       aria-busy={busyKind === "file"}
@@ -322,8 +499,39 @@
 
   /* Hero */
   .hero {
-    padding: 36px 0 24px;
-    max-width: 640px;
+    padding: 24px 0 24px;
+    /* Width matches the .start container minus its padding so the hero SVG
+       can span edge-to-edge of the choices grid below. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 22px;
+  }
+  /* Animated mini-table — orchestrated entrance via anime.js. The SVG and
+     each animatable child start at opacity:0 so anime.js can ramp them in.
+     Falls back to opacity:1 if reduce-motion is set (handled in onMount).
+     Width matches the .choices section below it so the two visual blocks
+     line up edge-to-edge. */
+  .hero-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* Hard ceiling: even on very wide windows the strip never grows past
+       a comfortable banner height. The viewBox aspect (~7:1) means the
+       width self-limits too. */
+    max-height: 130px;
+    filter: drop-shadow(0 6px 18px rgba(35, 131, 226, 0.06));
+  }
+  .hero-frame,
+  .hero-header-band,
+  .hero-line,
+  .hero-glyph,
+  .hero-cell,
+  .hero-highlight,
+  .hero-cursor {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
   }
   h1 {
     margin: 0;
@@ -333,6 +541,11 @@
     line-height: 1.3;
     letter-spacing: -0.012em;
     color: var(--mt-fg);
+  }
+  /* Initial state for anime.js .reveal entries — invisible until the
+     onMount sequence runs them. */
+  .reveal {
+    opacity: 0;
   }
 
   /* Choice cards */
@@ -627,35 +840,23 @@
       transform: rotate(360deg);
     }
   }
-
-  /* Page-load reveal: subtle staggered fade. Notion is restrained — short, soft. */
-  .hero h1,
-  .choices > .choice {
-    animation: rise 480ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
-  }
-  .hero h1 {
-    animation-delay: 60ms;
-  }
-  .choices > .choice:nth-child(1) {
-    animation-delay: 140ms;
-  }
-  .choices > .choice:nth-child(2) {
-    animation-delay: 200ms;
-  }
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
+  /* Reduce-motion override: anime.js's onMount path already short-circuits,
+     but a CSS fallback for the static .reveal initial-opacity:0 ensures the
+     content is visible even before JS runs (e.g. SSR snapshot). */
   @media (prefers-reduced-motion: reduce) {
-    .hero h1,
-    .choices > .choice {
-      animation: none;
+    .reveal {
+      opacity: 1;
+    }
+    .hero-frame,
+    .hero-header-band,
+    .hero-line,
+    .hero-glyph,
+    .hero-cell,
+    .hero-cursor {
+      opacity: 1;
+    }
+    .hero-highlight {
+      opacity: 0.35;
     }
   }
 </style>
