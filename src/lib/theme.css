@@ -1,0 +1,227 @@
+/*
+ * MarkTable design tokens.
+ *
+ * Layered as: light defaults → dark via OS preference → manual override
+ * via [data-theme="…"] attribute on <html>. Default behavior follows the
+ * OS; setting `document.documentElement.dataset.theme = "dark"` (or
+ * "light") forces a specific mode and overrides the OS.
+ *
+ * Imported once globally from src/routes/+layout.ts so every screen
+ * inherits without each component declaring its own copy.
+ */
+
+:root {
+  /* Typography — developer-tool stack. */
+  --mt-font-sans:
+    "Geist Sans", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Helvetica Neue", sans-serif;
+  --mt-font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono",
+    Consolas, monospace;
+  --mt-font-display:
+    "Geist Sans", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+
+  /* Surfaces — Notion warm-paper palette. */
+  --mt-page-bg: #ffffff;
+  --mt-surface: #fbfaf9;
+  --mt-surface-strong: #f1f1ef;
+  --mt-elevated: #ffffff;
+
+  /* Text — warm near-black, not pure black. */
+  --mt-fg: #37352f;
+  --mt-fg-muted: #787774;
+  --mt-fg-subtle: #9b9a97;
+
+  /* Lines */
+  --mt-border: rgba(55, 53, 47, 0.09);
+  --mt-border-strong: rgba(55, 53, 47, 0.16);
+  --mt-divider: rgba(55, 53, 47, 0.07);
+
+  /* States */
+  --mt-hover: rgba(55, 53, 47, 0.05);
+  --mt-active: rgba(55, 53, 47, 0.1);
+
+  /* Accent */
+  --mt-accent: #2383e2;
+  --mt-accent-hover: #0b6bcb;
+  --mt-accent-soft: rgba(35, 131, 226, 0.1);
+
+  /* Tag pills (light) */
+  --mt-tag-blue: #d3e5ef;
+  --mt-tag-blue-fg: #183347;
+  --mt-tag-green: #ddedea;
+  --mt-tag-green-fg: #1c3735;
+  --mt-tag-yellow: #fdecc8;
+  --mt-tag-yellow-fg: #5c3b00;
+  --mt-tag-red: #ffe2dd;
+  --mt-tag-red-fg: #5d1715;
+  --mt-tag-purple: #e8deee;
+  --mt-tag-purple-fg: #492f64;
+  --mt-tag-pink: #f5e0e9;
+  --mt-tag-pink-fg: #4f3037;
+  --mt-tag-orange: #fadec9;
+  --mt-tag-orange-fg: #5c3b23;
+  --mt-tag-gray: #ebebe9;
+  --mt-tag-gray-fg: #50504d;
+
+  /* Semantic */
+  --mt-warn: #cb912f;
+  --mt-warn-bg: #fbecdd;
+  --mt-warn-fg: #5c3b00;
+  --mt-error: #e03e3e;
+  --mt-error-bg: #fbe4e4;
+  --mt-error-fg: #5d1715;
+  --mt-success: #0f7b6c;
+  --mt-success-bg: #ddedea;
+  --mt-success-fg: #1c3735;
+
+  /* Shadows */
+  --mt-shadow-1:
+    0 1px 2px rgba(15, 15, 15, 0.05),
+    0 2px 4px rgba(15, 15, 15, 0.04);
+  --mt-shadow-2:
+    0 1px 3px rgba(15, 15, 15, 0.08),
+    0 6px 16px rgba(15, 15, 15, 0.06);
+  --mt-shadow-3:
+    0 8px 32px rgba(15, 15, 15, 0.18),
+    0 2px 6px rgba(15, 15, 15, 0.08);
+}
+
+/* Dark variants — applied via OS preference OR an explicit data-theme="dark"
+   attribute on <html>. Both selectors are combined in the same block so
+   neither needs to repeat values. The reverse override (force light when OS
+   is dark) is handled by the data-theme="light" block below. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mt-page-bg: #191919;
+    --mt-surface: #202020;
+    --mt-surface-strong: #2a2a2a;
+    --mt-elevated: #2f2f2f;
+
+    --mt-fg: #e6e6e4;
+    --mt-fg-muted: #9b9b9b;
+    --mt-fg-subtle: #6f6f6f;
+
+    --mt-border: rgba(255, 255, 255, 0.094);
+    --mt-border-strong: rgba(255, 255, 255, 0.18);
+    --mt-divider: rgba(255, 255, 255, 0.07);
+
+    --mt-hover: rgba(255, 255, 255, 0.055);
+    --mt-active: rgba(255, 255, 255, 0.1);
+
+    --mt-accent: #529cca;
+    --mt-accent-hover: #80b8df;
+    --mt-accent-soft: rgba(82, 156, 202, 0.18);
+
+    --mt-tag-blue: #1f3954;
+    --mt-tag-blue-fg: #5a9bd1;
+    --mt-tag-green: #1c3735;
+    --mt-tag-green-fg: #5fbeae;
+    --mt-tag-yellow: #56452f;
+    --mt-tag-yellow-fg: #e9c167;
+    --mt-tag-red: #3a2222;
+    --mt-tag-red-fg: #ff7369;
+    --mt-tag-purple: #2f2245;
+    --mt-tag-purple-fg: #b18bd0;
+    --mt-tag-pink: #3b2735;
+    --mt-tag-pink-fg: #ec98c9;
+    --mt-tag-orange: #4a2f1d;
+    --mt-tag-orange-fg: #ed9054;
+    --mt-tag-gray: #2a2a2a;
+    --mt-tag-gray-fg: #9b9b9b;
+
+    --mt-warn: #dfab01;
+    --mt-warn-bg: #3a2f1f;
+    --mt-warn-fg: #f0c462;
+    --mt-error: #ff7369;
+    --mt-error-bg: #3a2222;
+    --mt-error-fg: #ff9d8b;
+    --mt-success: #4dab9a;
+    --mt-success-bg: #1c3735;
+    --mt-success-fg: #6cc6b3;
+
+    --mt-shadow-1:
+      0 1px 2px rgba(0, 0, 0, 0.4),
+      0 2px 4px rgba(0, 0, 0, 0.3);
+    --mt-shadow-2:
+      0 1px 3px rgba(0, 0, 0, 0.5),
+      0 8px 24px rgba(0, 0, 0, 0.45);
+    --mt-shadow-3:
+      0 16px 40px rgba(0, 0, 0, 0.6),
+      0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Manual dark override — applies regardless of OS preference. */
+:root[data-theme="dark"] {
+  --mt-page-bg: #191919;
+  --mt-surface: #202020;
+  --mt-surface-strong: #2a2a2a;
+  --mt-elevated: #2f2f2f;
+
+  --mt-fg: #e6e6e4;
+  --mt-fg-muted: #9b9b9b;
+  --mt-fg-subtle: #6f6f6f;
+
+  --mt-border: rgba(255, 255, 255, 0.094);
+  --mt-border-strong: rgba(255, 255, 255, 0.18);
+  --mt-divider: rgba(255, 255, 255, 0.07);
+
+  --mt-hover: rgba(255, 255, 255, 0.055);
+  --mt-active: rgba(255, 255, 255, 0.1);
+
+  --mt-accent: #529cca;
+  --mt-accent-hover: #80b8df;
+  --mt-accent-soft: rgba(82, 156, 202, 0.18);
+
+  --mt-tag-blue: #1f3954;
+  --mt-tag-blue-fg: #5a9bd1;
+  --mt-tag-green: #1c3735;
+  --mt-tag-green-fg: #5fbeae;
+  --mt-tag-yellow: #56452f;
+  --mt-tag-yellow-fg: #e9c167;
+  --mt-tag-red: #3a2222;
+  --mt-tag-red-fg: #ff7369;
+  --mt-tag-purple: #2f2245;
+  --mt-tag-purple-fg: #b18bd0;
+  --mt-tag-pink: #3b2735;
+  --mt-tag-pink-fg: #ec98c9;
+  --mt-tag-orange: #4a2f1d;
+  --mt-tag-orange-fg: #ed9054;
+  --mt-tag-gray: #2a2a2a;
+  --mt-tag-gray-fg: #9b9b9b;
+
+  --mt-warn: #dfab01;
+  --mt-warn-bg: #3a2f1f;
+  --mt-warn-fg: #f0c462;
+  --mt-error: #ff7369;
+  --mt-error-bg: #3a2222;
+  --mt-error-fg: #ff9d8b;
+  --mt-success: #4dab9a;
+  --mt-success-bg: #1c3735;
+  --mt-success-fg: #6cc6b3;
+
+  --mt-shadow-1:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+  --mt-shadow-2:
+    0 1px 3px rgba(0, 0, 0, 0.5),
+    0 8px 24px rgba(0, 0, 0, 0.45);
+  --mt-shadow-3:
+    0 16px 40px rgba(0, 0, 0, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Manual light override — wins over OS dark preference. The `:root` rule at
+   the top of the file is the light baseline; redeclaring here so the cascade
+   is unambiguous when both selectors match. */
+:root[data-theme="light"] {
+  --mt-page-bg: #ffffff;
+  --mt-surface: #fbfaf9;
+  --mt-surface-strong: #f1f1ef;
+  --mt-elevated: #ffffff;
+  --mt-fg: #37352f;
+  --mt-fg-muted: #787774;
+  --mt-fg-subtle: #9b9a97;
+}

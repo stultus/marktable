@@ -653,11 +653,6 @@
     return model.rows[rowIdx].record.fields[colName] ?? ({ kind: "null" } as Value);
   }
 
-  function listItems(v: Value): string[] {
-    if (v.kind === "list") return v.value.map(valueToDisplay).filter(Boolean);
-    return [];
-  }
-
   // Deterministic tag color: hash → palette index.
   const tagPalette = [
     "blue",
