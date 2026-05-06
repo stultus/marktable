@@ -1171,6 +1171,25 @@
               <td class="col-add-cell" aria-hidden="true"></td>
             </tr>
           {/each}
+          {#if model.rows.length === 0 || model.rows.every((r) => r.pending_delete)}
+            <tr class="empty-rows-tr" aria-hidden="true">
+              <td class="empty-rows-cell" colspan={model.schema.columns.length + 2}>
+                <span class="empty-rows-glyph">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+                    <rect x="3" y="6" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/>
+                    <path d="M3 11h18" stroke="currentColor" stroke-width="1.4"/>
+                  </svg>
+                </span>
+                <span class="empty-rows-text">
+                  {#if model.rows.length === 0}
+                    No rows yet — click <strong>+ {model.mode.kind === "folder" ? "File" : "Row"}</strong> below to add one.
+                  {:else}
+                    All rows are marked for deletion. Save All to commit, or restore one to keep editing.
+                  {/if}
+                </span>
+              </td>
+            </tr>
+          {/if}
           <tr class="add-row-tr">
             <td class="row-head add-row-head">
               <button
@@ -1482,6 +1501,8 @@
     font-weight: 500;
     color: var(--mt-fg);
     font-size: 12.5px;
+    /* Tabular figures — counters don't shift width as digits roll. */
+    font-feature-settings: "tnum" on, "lnum" on;
   }
   .meta-sep {
     width: 1px;
@@ -2087,17 +2108,21 @@
     top: 0;
     padding-right: 28px;
   }
+  /* Hit area is 24×24 (visible 18×18 glyph centered inside). At 18×18 the
+     button met neither WCAG 2.5.5 (44×44 ideal) nor common desktop minimum
+     (24×24) — easy to miss with the cursor. The glyph stays visually small
+     so the header isn't cluttered; only the click area grows. */
   .col-delete {
     all: unset;
     position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 18px;
-    height: 18px;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--mt-fg-subtle);
     cursor: pointer;
     opacity: 0;
@@ -2148,6 +2173,28 @@
     border-bottom: 1px solid var(--mt-divider);
     padding: 0;
     min-height: 36px;
+  }
+
+  /* Empty-rows tbody placeholder shown when every row is gone or pending-delete. */
+  tr.empty-rows-tr td {
+    border: none;
+    background: var(--mt-page-bg);
+    padding: 36px 24px;
+  }
+  td.empty-rows-cell {
+    text-align: center;
+    color: var(--mt-fg-muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .empty-rows-glyph {
+    display: block;
+    margin: 0 auto 10px;
+    color: var(--mt-fg-subtle);
+  }
+  .empty-rows-text strong {
+    color: var(--mt-fg);
+    font-weight: 500;
   }
 
   /* Bottom "Add row" plus, symmetric to the trailing column "+" header */
@@ -2203,18 +2250,18 @@
     pointer-events: none;
   }
 
-  /* Per-row delete (shown on row hover, top-right of row-head) */
+  /* Per-row delete: 24×24 hit area for the same reason as .col-delete. */
   .row-delete {
     all: unset;
     position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 18px;
-    height: 18px;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 3px;
+    border-radius: 4px;
     color: var(--mt-fg-subtle);
     cursor: pointer;
     opacity: 0;
@@ -2367,8 +2414,27 @@
   tbody tr:hover td.row-head {
     background: var(--mt-surface-strong);
   }
+  /* Parse-error rows are read-only and shown with a diagonal hatch over the
+     red wash so they're unmistakably broken-but-shown rather than just
+     "another row with red bg." The row-head gets a small ⚠ badge prefix
+     via .row-head[data-row-error]. */
   tbody tr.errored td {
-    background: var(--mt-error-bg);
+    background:
+      repeating-linear-gradient(
+        135deg,
+        transparent 0,
+        transparent 6px,
+        color-mix(in srgb, var(--mt-error) 8%, transparent) 6px,
+        color-mix(in srgb, var(--mt-error) 8%, transparent) 7px
+      ),
+      var(--mt-error-bg);
+  }
+  tbody tr.errored td.row-head::before {
+    content: "⚠";
+    color: var(--mt-error);
+    font-size: 12px;
+    margin-right: 6px;
+    vertical-align: -1px;
   }
   tbody td:last-child {
     border-right: 0;
