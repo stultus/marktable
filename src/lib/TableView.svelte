@@ -648,7 +648,38 @@
   let pathInfo = $derived(modePathSegments());
   let dirtyCount = $derived(dirtyCells.size);
   let pendingDeleteCount = $derived(model.rows.filter((r) => r.pending_delete).length);
+  let pendingRenameCount = $derived(
+    model.rows.filter((r) => r.pending_rename != null && r.pending_rename !== "").length,
+  );
+  // A "new row" in folder mode is a Row whose original_text is empty — it
+  // doesn't exist on disk yet. In single-file mode (Inline source), there's
+  // no parallel concept; we surface row mutations via rowsDirty.
+  let newRowCount = $derived(
+    model.rows.filter(
+      (r) => r.source.kind === "file" && r.source.original_text === "" && !r.pending_delete,
+    ).length,
+  );
   let hasUnsaved = $derived(dirtyCount > 0 || schemaDirty || rowsDirty);
+  /** Total count for the dirty pill numeric. Sums per-cell edits, schema
+   *  mutations (counted as 1), pending row deletions, pending renames, and
+   *  new rows. */
+  let dirtyTotal = $derived(
+    dirtyCount + (schemaDirty ? 1 : 0) + pendingDeleteCount + pendingRenameCount + newRowCount,
+  );
+  /** Tooltip-friendly breakdown of what's unsaved. */
+  let dirtyBreakdown = $derived.by(() => {
+    const parts: string[] = [];
+    if (dirtyCount > 0) parts.push(`${dirtyCount} cell${dirtyCount === 1 ? "" : "s"} edited`);
+    if (schemaDirty) parts.push("schema changed");
+    if (newRowCount > 0) parts.push(`${newRowCount} row${newRowCount === 1 ? "" : "s"} added`);
+    if (pendingRenameCount > 0)
+      parts.push(`${pendingRenameCount} rename${pendingRenameCount === 1 ? "" : "s"} pending`);
+    if (pendingDeleteCount > 0)
+      parts.push(
+        `${pendingDeleteCount} row${pendingDeleteCount === 1 ? "" : "s"} marked for delete`,
+      );
+    return parts.length === 0 ? "no changes" : parts.join(" · ");
+  });
   let hasColumns = $derived(model.schema.columns.length > 0);
   let visibleWarnings = $derived(
     model.warnings
@@ -717,9 +748,15 @@
     </span>
 
     {#if hasUnsaved}
-      <span class="dirty-pill" transition:fade={{ duration: 120 }}>
+      <span
+        class="dirty-pill"
+        title={dirtyBreakdown}
+        aria-label={`Unsaved changes: ${dirtyBreakdown}`}
+        transition:fade={{ duration: 120 }}
+      >
         <span class="dirty-dot" aria-hidden="true"></span>
-        unsaved
+        <span>{dirtyTotal}</span>
+        <span class="dirty-pill-label">unsaved</span>
       </span>
     {/if}
 
@@ -1393,7 +1430,7 @@
   .dirty-pill {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     padding: 3px 10px 3px 8px;
     background: transparent;
     color: var(--mt-fg-muted);
@@ -1404,6 +1441,10 @@
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    cursor: help;
+  }
+  .dirty-pill-label {
+    color: var(--mt-fg-subtle);
   }
   .dirty-dot {
     width: 6px;
@@ -1696,11 +1737,8 @@
     padding-bottom: 14px;
     border-top: 1px solid var(--mt-divider);
   }
-  /* Compact spacing on btn-danger when it has an inline glyph. */
-  .btn-danger svg {
-    margin-right: 6px;
-    vertical-align: -2px;
-  }
+  /* The leading SVG inside a destructive button gets its spacing from the
+     button's flex `gap` — no manual margin/vertical-align needed. */
   .modal form,
   .modal > .modal-body,
   .modal > .modal-actions {
@@ -1784,23 +1822,30 @@
     padding-right: 22px;
   }
   .modal-actions::before {
+    /* Quiet secondary caption — sits at the left of the action bar without
+       imitating the buttons' visual weight. The kbd-shaped pill made the
+       buttons appear vertically misaligned because it was a different
+       height; plain text on the same flex baseline avoids that. */
     content: "esc to close";
     font-family: var(--mt-font-mono);
-    font-size: 10.5px;
+    font-size: 11px;
     letter-spacing: 0.04em;
-    text-transform: uppercase;
     color: var(--mt-fg-subtle);
     margin-right: auto;
-    padding: 2px 8px;
-    border: 1px solid var(--mt-divider);
-    border-radius: 4px;
   }
   .btn-primary,
   .btn-secondary,
   .btn-danger {
     all: unset;
     cursor: pointer;
-    padding: 7px 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    /* Fixed height so all variants align on the same baseline regardless
+       of whether they contain a leading icon or just a label. */
+    height: 32px;
+    padding: 0 14px;
     font-size: 13px;
     font-weight: 500;
     letter-spacing: -0.005em;
