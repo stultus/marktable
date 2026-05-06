@@ -168,12 +168,12 @@
       <div class="dp-head">
         <button type="button" class="dp-nav" onclick={() => nudgeYear(-1)} aria-label="Previous year">
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none">
-            <path d="M9 3l-3 3 3 3M5.5 3l-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M9 3l-3 3 3 3M5.5 3l-3 3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
         <button type="button" class="dp-nav" onclick={() => nudgeMonth(-1)} aria-label="Previous month">
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none">
-            <path d="M7.5 3l-3 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7.5 3l-3 3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
         <span class="dp-title">
@@ -181,12 +181,12 @@
         </span>
         <button type="button" class="dp-nav" onclick={() => nudgeMonth(1)} aria-label="Next month">
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none">
-            <path d="M4.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
         <button type="button" class="dp-nav" onclick={() => nudgeYear(1)} aria-label="Next year">
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none">
-            <path d="M3 3l3 3-3 3M6.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 3l3 3-3 3M6.5 3l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
       </div>

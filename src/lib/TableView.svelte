@@ -731,7 +731,7 @@
             <path
               d="M1.5 4.4c0-.5.4-.9.9-.9h2.95c.24 0 .47.1.64.27L7.1 4.85c.17.17.4.27.64.27H13.6c.5 0 .9.4.9.9v6.18c0 .5-.4.9-.9.9H2.4a.9.9 0 01-.9-.9V4.4z"
               stroke="currentColor"
-              stroke-width="1.3"
+              stroke-width="1.4"
               stroke-linejoin="round"
             />
           </svg>
@@ -740,10 +740,10 @@
             <path
               d="M9 1.8H4.2a.9.9 0 00-.9.9v10.6c0 .5.4.9.9.9h7.6a.9.9 0 00.9-.9V5.4L9 1.8z"
               stroke="currentColor"
-              stroke-width="1.3"
+              stroke-width="1.4"
               stroke-linejoin="round"
             />
-            <path d="M9 1.8v3.6h3.6" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+            <path d="M9 1.8v3.6h3.6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
           </svg>
         {/if}
       </span>
@@ -830,12 +830,12 @@
             {#if w.kind === "empty_columns"}
               <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
                 <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4" />
-                <path d="M8 5v3.5M8 11v.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M8 5v3.5M8 11v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
               </svg>
             {:else}
               <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
                 <path d="M8 1.5l7 12.5H1L8 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
-                <path d="M8 6.5v3.5M8 12v.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M8 6.5v3.5M8 12v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
               </svg>
             {/if}
           </span>
@@ -872,7 +872,7 @@
         <span class="empty-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none">
             <rect x="3" y="6" width="26" height="20" rx="2" stroke="currentColor" stroke-width="1.4" />
-            <path d="M10 6v20M22 6v20M3 13h26M3 19h26" stroke="currentColor" stroke-width="1.2" />
+            <path d="M10 6v20M22 6v20M3 13h26M3 19h26" stroke="currentColor" stroke-width="1.4" />
           </svg>
         </span>
         <h2>No columns yet.</h2>
@@ -911,32 +911,32 @@
                 <span class="col-glyph type-{col.type}" aria-hidden="true">
                   {#if col.type === "text"}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
-                      <path d="M2.5 4V3h9v1M7 3v8.5M5 11.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M2.5 4V3h9v1M7 3v8.5M5 11.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                     </svg>
                   {:else if col.type === "number"}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
-                      <path d="M5 2.5L4 11.5M9 2.5L8 11.5M2.5 5h9.5M2 9h9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M5 2.5L4 11.5M9 2.5L8 11.5M2.5 5h9.5M2 9h9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                     </svg>
                   {:else if col.type === "boolean"}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
-                      <rect x="2.5" y="2.5" width="9" height="9" rx="1.6" stroke="currentColor" stroke-width="1.3"/>
+                      <rect x="2.5" y="2.5" width="9" height="9" rx="1.6" stroke="currentColor" stroke-width="1.4"/>
                       <path d="M5 7.4l1.6 1.5L9 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                   {:else if col.type === "date"}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
-                      <rect x="2" y="3.4" width="10" height="8.6" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
-                      <path d="M2 6.2h10M4.6 2v2.4M9.4 2v2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <rect x="2" y="3.4" width="10" height="8.6" rx="1.2" stroke="currentColor" stroke-width="1.4"/>
+                      <path d="M2 6.2h10M4.6 2v2.4M9.4 2v2.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                     </svg>
                   {:else if col.type === "list"}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
                       <circle cx="3" cy="4" r="1" fill="currentColor"/>
                       <circle cx="3" cy="7" r="1" fill="currentColor"/>
                       <circle cx="3" cy="10" r="1" fill="currentColor"/>
-                      <path d="M5.5 4h6M5.5 7h6M5.5 10h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M5.5 4h6M5.5 7h6M5.5 10h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
                     </svg>
                   {:else}
                     <svg viewBox="0 0 14 14" width="12" height="12" fill="none">
-                      <path d="M5 3L2 7l3 4M9 3l3 4-3 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M5 3L2 7l3 4M9 3l3 4-3 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                   {/if}
                 </span>
@@ -1174,7 +1174,7 @@
       <span class="toast-icon" aria-hidden="true">
         {#if toast.kind === "success"}
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
-            <path d="M3.2 8.4l3 3 6.6-6.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M3.2 8.4l3 3 6.6-6.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         {:else}
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
@@ -1186,7 +1186,7 @@
       <span class="toast-text">{toast.text}</span>
       <button class="toast-close" onclick={() => (toast = null)} aria-label="Dismiss">
         <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
-          <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
     </div>
@@ -1324,7 +1324,7 @@
           bind:this={deleteConfirmButton}
         >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
-            <path d="M2.5 5.5h11M6 5.5V4a1 1 0 011-1h2a1 1 0 011 1v1.5M4 5.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9L12 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2.5 5.5h11M6 5.5V4a1 1 0 011-1h2a1 1 0 011 1v1.5M4 5.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9L12 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>Delete column</span>
         </button>

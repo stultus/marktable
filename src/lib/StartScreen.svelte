@@ -105,7 +105,7 @@
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
           <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4" />
-          <path d="M5 2.5v11M11 2.5v11M1.5 6h13M1.5 10h13" stroke="currentColor" stroke-width="1.2" />
+          <path d="M5 2.5v11M11 2.5v11M1.5 6h13M1.5 10h13" stroke="currentColor" stroke-width="1.4" />
         </svg>
       </span>
       <span class="brand-name">MarkTable</span>
@@ -207,7 +207,7 @@
                     <path
                       d="M1.5 4.4c0-.5.4-.9.9-.9h2.95c.24 0 .47.1.64.27L7.1 4.85c.17.17.4.27.64.27H13.6c.5 0 .9.4.9.9v6.18c0 .5-.4.9-.9.9H2.4a.9.9 0 01-.9-.9V4.4z"
                       stroke="currentColor"
-                      stroke-width="1.3"
+                      stroke-width="1.4"
                       stroke-linejoin="round"
                     />
                   </svg>
@@ -216,10 +216,10 @@
                     <path
                       d="M9 1.8H4.2a.9.9 0 00-.9.9v10.6c0 .5.4.9.9.9h7.6a.9.9 0 00.9-.9V5.4L9 1.8z"
                       stroke="currentColor"
-                      stroke-width="1.3"
+                      stroke-width="1.4"
                       stroke-linejoin="round"
                     />
-                    <path d="M9 1.8v3.6h3.6" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    <path d="M9 1.8v3.6h3.6" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
                   </svg>
                 {/if}
               </span>
