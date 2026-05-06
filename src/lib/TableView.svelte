@@ -48,6 +48,8 @@
   // Confirm-discard prompt — appears when the user clicks Close while there
   // are unsaved changes. Direct close (no unsaved) skips the prompt.
   let confirmCloseOpen = $state(false);
+  // Keyboard shortcuts cheat-sheet modal.
+  let shortcutsOpen = $state(false);
 
   // Add Column modal state
   let addColOpen = $state(false);
@@ -774,6 +776,18 @@
         if (!saving && hasUnsaved) doSave();
         return;
       }
+      // Cmd/Ctrl-/ → toggle keyboard shortcuts cheat sheet
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        if (shortcutsOpen) {
+          shortcutsOpen = false;
+          restoreFocus();
+        } else {
+          captureTrigger();
+          shortcutsOpen = true;
+        }
+        return;
+      }
       // Escape closes any open modal and returns focus to its trigger.
       if (e.key === "Escape") {
         if (addColOpen) {
@@ -793,6 +807,9 @@
           restoreFocus();
         } else if (confirmCloseOpen) {
           confirmCloseOpen = false;
+          restoreFocus();
+        } else if (shortcutsOpen) {
+          shortcutsOpen = false;
           restoreFocus();
         }
       }
@@ -959,6 +976,17 @@
       </span>
     {/if}
 
+    <button
+      class="icon-btn shortcuts-btn"
+      onclick={() => { captureTrigger(); shortcutsOpen = true; }}
+      title="Keyboard shortcuts ({navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'}+/)"
+      aria-label="Keyboard shortcuts"
+    >
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M6.2 6.2c0-1 .8-1.8 1.8-1.8s1.8.8 1.8 1.8c0 .8-.6 1.2-1.2 1.6-.5.3-.6.6-.6 1v.4M8 11.6v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </button>
     <button class="ghost-btn" onclick={openAddColumn} title="Add column">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
         <path d="M2.5 4.5h11M2.5 8h7M2.5 11.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
@@ -1425,6 +1453,38 @@
           <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
+    </div>
+  {/if}
+
+  {#if shortcutsOpen}
+    <div class="modal-backdrop" onclick={() => { shortcutsOpen = false; restoreFocus(); }} role="presentation"></div>
+    <div class="modal" use:trapFocus role="dialog" aria-labelledby="shortcuts-title" aria-modal="true">
+      <form onsubmit={(e) => { e.preventDefault(); shortcutsOpen = false; restoreFocus(); }}>
+        <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+        <dl class="shortcut-list">
+          <dt><kbd>{navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl"}</kbd>+<kbd>S</kbd></dt>
+          <dd>Save All</dd>
+          <dt><kbd>{navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl"}</kbd>+<kbd>/</kbd></dt>
+          <dd>Toggle this cheat sheet</dd>
+          <dt><kbd>Tab</kbd> · <kbd>Shift</kbd>+<kbd>Tab</kbd></dt>
+          <dd>Move between cells (row-major)</dd>
+          <dt><kbd>Enter</kbd></dt>
+          <dd>Commit cell, advance one row in same column</dd>
+          <dt><kbd>Shift</kbd>+<kbd>Enter</kbd></dt>
+          <dd>Insert newline in a text cell</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Cancel cell edit · close modal</dd>
+          <dt>Click a column header</dt>
+          <dd>Edit column name + type</dd>
+          <dt>Click a chip <kbd>×</kbd> in a list cell</dt>
+          <dd>Remove that item</dd>
+          <dt><kbd>Backspace</kbd> in empty list input</dt>
+          <dd>Remove the last chip</dd>
+        </dl>
+        <div class="modal-actions">
+          <button type="submit" class="btn-primary">Got it</button>
+        </div>
+      </form>
     </div>
   {/if}
 
@@ -3034,6 +3094,45 @@
   .toast-close:hover {
     background: rgba(255, 255, 255, 0.18);
     color: #fff;
+  }
+
+  /* Keyboard shortcuts cheat sheet */
+  .shortcuts-btn {
+    color: var(--mt-fg-muted);
+  }
+  .shortcuts-btn:hover {
+    color: var(--mt-fg);
+  }
+  .shortcut-list {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(120px, max-content) 1fr;
+    gap: 8px 14px;
+    align-items: baseline;
+  }
+  .shortcut-list dt {
+    margin: 0;
+    font-family: var(--mt-font-mono);
+    font-size: 11px;
+    color: var(--mt-fg);
+    white-space: nowrap;
+  }
+  .shortcut-list dd {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--mt-fg-muted);
+    line-height: 1.4;
+  }
+  .shortcut-list kbd {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--mt-surface-strong);
+    border: 1px solid var(--mt-border);
+    color: var(--mt-fg);
+    font-size: 11px;
+    font-family: inherit;
   }
 
   /* Save-failures detail modal */
