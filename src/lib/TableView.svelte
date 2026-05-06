@@ -1572,6 +1572,18 @@
     color: var(--mt-fg-subtle);
     font-family: var(--mt-font-sans);
   }
+  /* Responsive collapse: under ~900px, the toolbar runs out of room for path
+     breadcrumbs + meta + dirty pill + ghost buttons + Save All. Hide all but
+     the last path segment so the file/folder name still anchors context. */
+  @media (max-width: 900px) {
+    .path-seg:not(.last) { display: none; }
+    .path-sep { display: none; }
+  }
+  /* Under ~720px, hide the meta counters too — Save All + dirty pill stay. */
+  @media (max-width: 720px) {
+    .meta { display: none; }
+    .meta-sep { display: none; }
+  }
 
   .meta {
     display: inline-flex;
