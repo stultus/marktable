@@ -39,6 +39,10 @@ export interface Row {
    *  save. Untouched rows are skipped during Save All so their bytes (and
    *  mtimes) on disk are preserved exactly. Single-file mode ignores this. */
   dirty?: boolean;
+  /** Folder mode: a queued new basename (relative to the folder). On Save All,
+   *  after data writes finish, the file is renamed. null/undefined = no rename
+   *  pending. Single-file mode ignores this. */
+  pending_rename?: string | null;
 }
 
 export type TableMode =
@@ -60,6 +64,7 @@ export interface TableModel {
 export interface SaveResult {
   written: string[];
   failures: { path: string; message: string }[];
+  renamed: { from: string; to: string }[];
 }
 
 export async function pickFolder(): Promise<string | null> {

@@ -10,6 +10,7 @@
     type TableModel,
     type Value,
     type FieldType,
+    type Row,
     type Record as MtRecord,
   } from "./api";
   import Select from "./Select.svelte";
@@ -66,6 +67,65 @@
 
   // Per-cell value at focus time, so Escape can revert in-flight edits.
   const cellOriginal = new Map<string, string>();
+
+  // Reserved cellKey suffix for the filename column in folder mode.
+  const FILENAME_COL = "__filename__";
+
+  function effectiveFilename(row: Row): string {
+    if (row.pending_rename != null && row.pending_rename !== "") {
+      return row.pending_rename;
+    }
+    if (row.source.kind === "file") return basename(row.source.path);
+    return "";
+  }
+
+  function validateFilename(rowIdx: number, raw: string): string | null {
+    const text = raw.trim();
+    if (text === "") return "Filename is required";
+    if (text.includes("/") || text.includes("\\"))
+      return "Filename cannot contain path separators";
+    if (text.split(/[/\\]/).some((seg) => seg === ".."))
+      return "Filename cannot contain '..'";
+    // The save phase auto-keeps whatever extension the user types, but if they
+    // strip the .md it becomes a non-markdown file in a markdown folder.
+    if (!/\.md$/i.test(text)) return "Filename must end in .md";
+    // Collision: any OTHER row's effective filename equals this one.
+    for (let i = 0; i < model.rows.length; i++) {
+      if (i === rowIdx) continue;
+      const other = model.rows[i];
+      if (other.pending_delete) continue;
+      if (effectiveFilename(other).toLowerCase() === text.toLowerCase()) {
+        return `A file named "${text}" already exists`;
+      }
+    }
+    return null;
+  }
+
+  function commitFilenameEdit(rowIdx: number, raw: string) {
+    const row = model.rows[rowIdx];
+    if (row.source.kind !== "file") return;
+    const text = raw.trim();
+    const key = cellKey(rowIdx, FILENAME_COL);
+    const err = validateFilename(rowIdx, text);
+    if (err) {
+      invalidCells.set(key, err);
+      invalidCells = new Map(invalidCells);
+      // Don't propagate an invalid filename to pending_rename — the user's
+      // input stays in the input field via its own value binding.
+      return;
+    } else {
+      invalidCells.delete(key);
+      invalidCells = new Map(invalidCells);
+    }
+    const current = basename(row.source.path);
+    if (text === current) {
+      // No-op rename: clear any prior pending_rename, leave dirty alone.
+      row.pending_rename = null;
+      return;
+    }
+    row.pending_rename = text;
+    rowsDirty = true;
+  }
 
   function rememberOriginal(rowIdx: number, colName: string, currentValue: string) {
     cellOriginal.set(cellKey(rowIdx, colName), currentValue);
@@ -152,6 +212,25 @@
       commitEdit(rowIdx, colName, target.value, type);
       if (e.shiftKey) focusPrev(rowIdx, colName);
       else focusNext(rowIdx, colName);
+    }
+  }
+
+  function filenameKeyDown(e: KeyboardEvent, rowIdx: number) {
+    const target = e.currentTarget as HTMLInputElement;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      const orig = cellOriginal.get(cellKey(rowIdx, FILENAME_COL));
+      if (orig !== undefined) target.value = orig;
+      target.blur();
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitFilenameEdit(rowIdx, target.value);
+      // Advance to the first data cell of this row.
+      const firstCol = model.schema.columns[0]?.name;
+      if (firstCol) focusCell(rowIdx, firstCol);
+      else target.blur();
     }
   }
 
@@ -441,6 +520,19 @@
         };
         dirtyCells = new Set();
         schemaDirty = false;
+        // Apply successful renames: update Row.source.path and clear
+        // pending_rename. The renamed list comes from save_all so it's
+        // authoritative — only mutate rows whose old path matches.
+        if (result.renamed.length > 0) {
+          for (const ren of result.renamed) {
+            for (const r of model.rows) {
+              if (r.source.kind === "file" && r.source.path === ren.from) {
+                r.source = { kind: "file", path: ren.to, original_text: r.source.original_text };
+                r.pending_rename = null;
+              }
+            }
+          }
+        }
         // Drop rows that were marked pending_delete and are now gone on disk.
         model.rows = model.rows.filter((r) => !r.pending_delete);
         // Renumber inline rows so labels stay sequential.
@@ -781,13 +873,33 @@
         </thead>
         <tbody>
           {#each model.rows as row, rowIdx (row.id)}
+            {@const filenameKey = cellKey(rowIdx, FILENAME_COL)}
+            {@const filenameInvalid = invalidCells.get(filenameKey)}
+            {@const isRenamed = row.pending_rename != null && row.pending_rename !== ""}
             <tr class:errored={row.parse_error !== null} class:pending-delete={row.pending_delete}>
-              <td class="row-head">
+              <td
+                class="row-head"
+                class:invalid={filenameInvalid !== undefined}
+                class:renamed={isRenamed}
+                title={filenameInvalid ?? (row.source.kind === "file" ? row.source.path : "")}
+                data-cell="{rowIdx}::{FILENAME_COL}"
+              >
                 <span class="row-num">{rowIdx + 1}</span>
                 {#if model.mode.kind === "folder"}
-                  <span class="row-name" title={row.source.kind === "file" ? row.source.path : ""}>
-                    {rowLabel(rowIdx)}
-                  </span>
+                  <input
+                    type="text"
+                    class="row-name-input"
+                    value={effectiveFilename(row)}
+                    spellcheck="false"
+                    autocomplete="off"
+                    onfocus={(e) =>
+                      rememberOriginal(rowIdx, FILENAME_COL, (e.currentTarget as HTMLInputElement).value)}
+                    onkeydown={(e) => filenameKeyDown(e, rowIdx)}
+                    onchange={(e) =>
+                      commitFilenameEdit(rowIdx, (e.currentTarget as HTMLInputElement).value)}
+                    onblur={(e) =>
+                      commitFilenameEdit(rowIdx, (e.currentTarget as HTMLInputElement).value)}
+                  />
                 {/if}
                 <button
                   type="button"
@@ -1925,16 +2037,45 @@
     min-width: 18px;
     vertical-align: top;
   }
-  .row-name {
+  /* Inline-editable filename input (folder mode only). Looks like the row-num
+     when at rest, becomes a focused input on click/Tab. Pending rename gets a
+     soft accent ring so it's visually obvious before Save All. */
+  .row-name-input {
+    all: unset;
     display: inline-block;
     margin-left: 8px;
+    padding: 1px 4px;
     color: var(--mt-fg);
+    font: inherit;
+    font-family: var(--mt-font-mono);
     font-size: 12px;
     vertical-align: top;
     max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    transition: border-color 120ms ease, background 120ms ease;
+    cursor: text;
+  }
+  td.row-head:hover .row-name-input {
+    border-color: var(--mt-divider);
+  }
+  .row-name-input:focus-visible {
+    border-color: var(--mt-accent);
+    background: var(--mt-elevated);
+    box-shadow: 0 0 0 2px var(--mt-accent-soft);
+  }
+  td.row-head.renamed .row-name-input {
+    color: var(--mt-accent);
+    border-color: color-mix(in srgb, var(--mt-accent) 35%, transparent);
+    background: var(--mt-accent-soft);
+  }
+  td.row-head.invalid {
+    box-shadow: inset 0 0 0 1px var(--mt-error);
+    background: color-mix(in srgb, var(--mt-error-bg) 70%, var(--mt-surface)) !important;
+  }
+  td.row-head.invalid .row-name-input {
+    color: var(--mt-error);
+    border-color: var(--mt-error);
   }
 
   tbody td {

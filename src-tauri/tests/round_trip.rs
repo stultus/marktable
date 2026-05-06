@@ -215,6 +215,120 @@ fn yaml_round_trip_preserves_comments() {
     assert!(out.contains("# inline"), "inline comment dropped");
 }
 
+// ─── Filename rename + Save All ordering (#4) ────────────────────────────────────────────
+
+#[test]
+fn folder_save_renames_after_writing_data() {
+    let dir = temp_dir("rename-after-write");
+
+    let f = dir.join("draft.md");
+    let original_text = "---\ntitle: Draft\n---\nBody.\n";
+    fs::write(&f, original_text).unwrap();
+
+    let parsed = markdown::parse(&f, original_text).unwrap();
+    let mut record = parsed.record.clone();
+    record
+        .fields
+        .insert("title".into(), Value::String("Final".into()));
+    let schema = Schema::infer(&[record.clone()]);
+
+    let model = TableModel {
+        mode: TableMode::Folder { path: dir.clone() },
+        schema,
+        rows: vec![Row {
+            id: f.to_string_lossy().to_string(),
+            source: RowSource::File {
+                path: f.clone(),
+                original_text: original_text.into(),
+            },
+            record,
+            parse_error: None,
+            pending_delete: false,
+            dirty: true, // edited title above
+            pending_rename: Some("final.md".into()),
+        }],
+        warnings: vec![],
+    };
+
+    let result = save_all(model).unwrap();
+    assert!(result.failures.is_empty(), "no failures expected: {:?}", result.failures);
+
+    // Old name is gone, new name has the new content.
+    assert!(!f.exists(), "draft.md should have been renamed away");
+    let new_path = dir.join("final.md");
+    assert!(new_path.exists(), "final.md should exist after rename");
+    let after = fs::read_to_string(&new_path).unwrap();
+    assert!(after.contains("title: Final"), "new file must reflect data write; got:\n{after}");
+
+    // SaveResult tracks the rename for the frontend.
+    assert_eq!(result.renamed.len(), 1);
+    assert_eq!(result.renamed[0].from, f);
+    assert_eq!(result.renamed[0].to, new_path);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn folder_save_rename_collision_fails_per_file() {
+    let dir = temp_dir("rename-collision");
+
+    let a = dir.join("a.md");
+    let b = dir.join("b.md");
+    fs::write(&a, "---\nx: 1\n---\nA\n").unwrap();
+    fs::write(&b, "---\nx: 2\n---\nB\n").unwrap();
+
+    let pa = markdown::parse(&a, "---\nx: 1\n---\nA\n").unwrap();
+    let pb = markdown::parse(&b, "---\nx: 2\n---\nB\n").unwrap();
+    let schema = Schema::infer(&[pa.record.clone(), pb.record.clone()]);
+
+    // Try to rename a.md → b.md (already exists). The rename must fail
+    // with a per-file failure; b.md must remain intact.
+    let model = TableModel {
+        mode: TableMode::Folder { path: dir.clone() },
+        schema,
+        rows: vec![
+            Row {
+                id: a.to_string_lossy().to_string(),
+                source: RowSource::File {
+                    path: a.clone(),
+                    original_text: "---\nx: 1\n---\nA\n".into(),
+                },
+                record: pa.record,
+                parse_error: None,
+                pending_delete: false,
+                dirty: false,
+                pending_rename: Some("b.md".into()),
+            },
+            Row {
+                id: b.to_string_lossy().to_string(),
+                source: RowSource::File {
+                    path: b.clone(),
+                    original_text: "---\nx: 2\n---\nB\n".into(),
+                },
+                record: pb.record,
+                parse_error: None,
+                pending_delete: false,
+                dirty: false,
+                pending_rename: None,
+            },
+        ],
+        warnings: vec![],
+    };
+
+    let result = save_all(model).unwrap();
+    assert_eq!(result.failures.len(), 1);
+    assert!(
+        result.failures[0].message.contains("already exists"),
+        "expected collision failure; got: {:?}",
+        result.failures[0]
+    );
+    assert!(result.renamed.is_empty());
+    assert!(a.exists(), "a.md must still exist after failed rename");
+    assert!(b.exists(), "b.md must still exist after failed rename");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 // ─── Save All only writes dirty files in folder mode (#17) ───────────────────────────────
 
 #[test]
@@ -255,6 +369,7 @@ fn folder_save_skips_clean_files() {
                 parse_error: None,
                 pending_delete: false,
                 dirty: false,
+                pending_rename: None,
             },
             Row {
                 id: dirty_path.to_string_lossy().to_string(),
@@ -266,6 +381,7 @@ fn folder_save_skips_clean_files() {
                 parse_error: None,
                 pending_delete: false,
                 dirty: true,
+                pending_rename: None,
             },
         ],
         warnings: vec![],

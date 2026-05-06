@@ -45,6 +45,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                 parse_error: None,
                 pending_delete: false,
                 dirty: false,
+                pending_rename: None,
             }),
             Err(e) => {
                 let msg = e.to_string();
@@ -62,6 +63,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                     parse_error: Some(msg),
                     pending_delete: false,
                     dirty: false,
+                    pending_rename: None,
                 });
             }
         }
@@ -111,6 +113,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     parse_error: None,
                     pending_delete: false,
                     dirty: false,
+                    pending_rename: None,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -143,6 +146,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     parse_error: None,
                     pending_delete: false,
                     dirty: false,
+                    pending_rename: None,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -178,6 +182,11 @@ pub fn open_file(path: String) -> Result<TableModel> {
 pub struct SaveResult {
     pub written: Vec<PathBuf>,
     pub failures: Vec<SaveFailure>,
+    /// Successful renames: (old basename string, new absolute path).
+    /// Frontend uses this to update its in-memory Row.source.path and
+    /// clear pending_rename for that row.
+    #[serde(default)]
+    pub renamed: Vec<RenameOk>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -186,14 +195,21 @@ pub struct SaveFailure {
     pub message: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameOk {
+    pub from: PathBuf,
+    pub to: PathBuf,
+}
+
 #[tauri::command]
 pub fn save_all(table: TableModel) -> Result<SaveResult> {
     let schema_keys = table.schema.keys();
     let mut written = Vec::new();
     let mut failures = Vec::new();
+    let mut renamed = Vec::new();
 
     match &table.mode {
-        TableMode::Folder { .. } => {
+        TableMode::Folder { path: folder_path } => {
             for row in &table.rows {
                 let RowSource::File {
                     path,
@@ -240,6 +256,60 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
                     Err(e) => failures.push(SaveFailure {
                         path: path.clone(),
                         message: e.to_string(),
+                    }),
+                }
+            }
+
+            // Rename phase — runs AFTER all data writes per PRD §7.8. A
+            // failed rename surfaces as a per-file SaveFailure but does not
+            // roll back the data write that already succeeded above.
+            for row in &table.rows {
+                if row.pending_delete {
+                    continue;
+                }
+                let RowSource::File { path, .. } = &row.source else {
+                    continue;
+                };
+                let Some(new_basename) = row.pending_rename.as_deref() else {
+                    continue;
+                };
+                let trimmed = new_basename.trim();
+                if trimmed.is_empty() {
+                    failures.push(SaveFailure {
+                        path: path.clone(),
+                        message: "rename target is empty".to_string(),
+                    });
+                    continue;
+                }
+                if trimmed.contains('/')
+                    || trimmed.contains('\\')
+                    || trimmed.split(['/', '\\']).any(|seg| seg == "..")
+                {
+                    failures.push(SaveFailure {
+                        path: path.clone(),
+                        message: format!("rename target {trimmed:?} contains an invalid path component"),
+                    });
+                    continue;
+                }
+                let new_path = folder_path.join(trimmed);
+                if new_path == *path {
+                    continue; // basename unchanged
+                }
+                if new_path.exists() {
+                    failures.push(SaveFailure {
+                        path: path.clone(),
+                        message: format!("rename target {trimmed:?} already exists"),
+                    });
+                    continue;
+                }
+                match std::fs::rename(path, &new_path) {
+                    Ok(()) => renamed.push(RenameOk {
+                        from: path.clone(),
+                        to: new_path,
+                    }),
+                    Err(e) => failures.push(SaveFailure {
+                        path: path.clone(),
+                        message: format!("rename to {trimmed:?} failed: {e}"),
                     }),
                 }
             }
@@ -291,7 +361,11 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
         }
     }
 
-    Ok(SaveResult { written, failures })
+    Ok(SaveResult {
+        written,
+        failures,
+        renamed,
+    })
 }
 
 fn extract_body(original: &str) -> String {

@@ -38,6 +38,11 @@ pub struct Row {
     /// whole document round-trips on every save regardless.
     #[serde(default)]
     pub dirty: bool,
+    /// Folder mode: a queued new basename (relative to the folder). On Save All,
+    /// after data writes finish, the file is renamed to this basename. None
+    /// means no rename pending. Single-file mode ignores this.
+    #[serde(default)]
+    pub pending_rename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
