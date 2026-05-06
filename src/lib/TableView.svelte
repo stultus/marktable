@@ -694,6 +694,26 @@
       (v.kind === "raw" && v.value === "")
     );
   }
+
+  /** Per-type empty-cell placeholder. The previous universal en-dash read
+   *  ambiguous in number/date columns ("is that zero or empty?"). Each type
+   *  now gets a typed cue rendered in fg-subtle italic via .display.is-empty. */
+  function emptyPlaceholderFor(type: FieldType): string {
+    switch (type) {
+      case "number":
+        return "0";
+      case "date":
+        return "yyyy-mm-dd";
+      case "list":
+        return "[ ]";
+      case "raw":
+        return "{ }";
+      case "text":
+      case "boolean":
+      default:
+        return "–"; // en-dash
+    }
+  }
 </script>
 
 <div class="view">
@@ -921,6 +941,12 @@
                   {/if}
                 </span>
                 <span class="col-name">{col.name}</span>
+                <span class="col-edit-hint" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                    <path d="M2.5 13.5h3l7.6-7.6a1.4 1.4 0 000-2L12.1 2.9a1.4 1.4 0 00-2 0L2.5 10.5v3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                    <path d="M9 4l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  </svg>
+                </span>
                 <button
                   type="button"
                   class="col-delete"
@@ -1047,7 +1073,7 @@
                           {/each}
                         </div>
                       {:else if empty}
-                        <div class="display is-empty" aria-hidden="true">&#8211;</div>
+                        <div class="display is-empty" aria-hidden="true">{emptyPlaceholderFor(col.type)}</div>
                       {:else}
                         <div class="display" aria-hidden="true">{cellText(rowIdx, col.name)}</div>
                       {/if}
@@ -2002,6 +2028,23 @@
     background: var(--mt-surface-strong);
     cursor: pointer;
   }
+  /* Pencil glyph next to the column name. Invisible at rest so the header
+     reads cleanly; reveals on hover (paired with the cursor:pointer above)
+     to signal "click to edit." Sits between the name and the delete x. */
+  .col-edit-hint {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 5px;
+    color: var(--mt-fg-subtle);
+    opacity: 0;
+    transition: opacity 140ms ease;
+    pointer-events: none;
+    vertical-align: middle;
+  }
+  thead th.col-head:hover .col-edit-hint,
+  thead th.col-head:focus-within .col-edit-hint {
+    opacity: 0.8;
+  }
   /* Per-column delete (×) — only visible on header hover. */
   thead th.col-head {
     position: sticky;
@@ -2248,7 +2291,8 @@
     cursor: text;
   }
   td.row-head:hover .row-name-input {
-    border-color: var(--mt-divider);
+    border-color: var(--mt-border-strong);
+    background: var(--mt-elevated);
   }
   .row-name-input:focus-visible {
     border-color: var(--mt-accent);
@@ -2502,14 +2546,15 @@
     color: var(--mt-tag-gray-fg);
   }
 
-  /* Dirty marker — small dot, top-right */
+  /* Dirty marker — a 2px left-edge bar in the warning color, much more
+     legible in a dense table than the previous 6px corner dot. Notion
+     and Linear use the same pattern. */
   .dirty-mark {
     position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 2px;
     background: var(--mt-warn);
     pointer-events: none;
     z-index: 2;
