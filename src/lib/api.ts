@@ -35,6 +35,10 @@ export interface Row {
   record: Record;
   parse_error: string | null;
   pending_delete?: boolean;
+  /** Folder mode: true when this row's record has been edited since open / last
+   *  save. Untouched rows are skipped during Save All so their bytes (and
+   *  mtimes) on disk are preserved exactly. Single-file mode ignores this. */
+  dirty?: boolean;
 }
 
 export type TableMode =

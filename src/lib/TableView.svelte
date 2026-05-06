@@ -93,6 +93,8 @@
       ...model.schema.columns,
       { name, type: addColType },
     ];
+    // Schema-level change → every row's frontmatter is rewritten on save.
+    for (const r of model.rows) r.dirty = true;
     schemaDirty = true;
     addColOpen = false;
   }
@@ -122,6 +124,7 @@
       record: emptyRecord(),
       parse_error: null,
       pending_delete: false,
+      dirty: true,
     };
     model.rows = [...model.rows, newRow];
     rowsDirty = true;
@@ -158,6 +161,7 @@
       record: emptyRecord(),
       parse_error: null,
       pending_delete: false,
+      dirty: true,
     });
     rowsDirty = true;
     addRowOpen = false;
@@ -206,6 +210,7 @@
           next[k === oldName ? name : k] = v;
         }
         row.record.fields = next;
+        row.dirty = true;
       }
       // Migrate dirty / invalid cell keys from "rowIdx::oldName" → "rowIdx::name".
       const remap = (k: string) =>
@@ -234,7 +239,10 @@
     if (!name) return;
     model.schema.columns = model.schema.columns.filter((c) => c.name !== name);
     for (const row of model.rows) {
-      delete row.record.fields[name];
+      if (name in row.record.fields) {
+        delete row.record.fields[name];
+        row.dirty = true;
+      }
     }
     // Clear any per-cell dirty flags for this column.
     const next = new Set<string>();
@@ -284,6 +292,7 @@
     invalidCells = new Map(invalidCells);
     if (JSON.stringify(next) === JSON.stringify(current)) return;
     model.rows[row].record.fields[col] = next;
+    model.rows[row].dirty = true;
     dirtyCells.add(key);
     dirtyCells = new Set(dirtyCells);
   }
@@ -347,6 +356,8 @@
         model.rows.forEach((r, i) => {
           if (r.source.kind === "inline") r.source = { kind: "inline", index: i };
         });
+        // Clear per-row dirty flags now that on-disk state matches.
+        for (const r of model.rows) r.dirty = false;
         rowsDirty = false;
         // Auto-dismiss success after 3.2s
         setTimeout(() => {

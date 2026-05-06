@@ -7,8 +7,11 @@
 use std::fs;
 use std::path::PathBuf;
 
+use marktable_lib::commands::save_all;
 use marktable_lib::formats::{json, markdown, yaml, LineEnding};
-use marktable_lib::model::{Record, Schema, Value};
+use marktable_lib::model::{
+    Record, Row, RowSource, Schema, TableMode, TableModel, Value,
+};
 
 fn temp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("marktable-test-{label}-{}", std::process::id()));
@@ -210,6 +213,91 @@ fn yaml_round_trip_preserves_comments() {
     let out = yaml::serialize(&parsed.records, &schema.keys()).unwrap();
     assert!(out.contains("# header comment"), "header comment dropped");
     assert!(out.contains("# inline"), "inline comment dropped");
+}
+
+// ─── Save All only writes dirty files in folder mode (#17) ───────────────────────────────
+
+#[test]
+fn folder_save_skips_clean_files() {
+    let dir = temp_dir("dirty-flag");
+
+    // Two files. We'll edit one and leave the other untouched, then assert
+    // that only the edited file's bytes change.
+    let clean_path = dir.join("clean.md");
+    let clean_text = "---\ntitle: Clean\nrating: 5\n---\nThis body must not change.\n";
+    fs::write(&clean_path, clean_text).unwrap();
+
+    let dirty_path = dir.join("dirty.md");
+    let dirty_text = "---\ntitle: Old\nrating: 3\n---\nBody.\n";
+    fs::write(&dirty_path, dirty_text).unwrap();
+
+    // Build the model the way open_folder would have, then mutate one row.
+    let p_clean = markdown::parse(&clean_path, clean_text).unwrap();
+    let p_dirty = markdown::parse(&dirty_path, dirty_text).unwrap();
+    let schema = Schema::infer(&[p_clean.record.clone(), p_dirty.record.clone()]);
+
+    let mut dirty_record = p_dirty.record.clone();
+    dirty_record
+        .fields
+        .insert("title".into(), Value::String("New".into()));
+
+    let model = TableModel {
+        mode: TableMode::Folder { path: dir.clone() },
+        schema,
+        rows: vec![
+            Row {
+                id: clean_path.to_string_lossy().to_string(),
+                source: RowSource::File {
+                    path: clean_path.clone(),
+                    original_text: clean_text.into(),
+                },
+                record: p_clean.record,
+                parse_error: None,
+                pending_delete: false,
+                dirty: false,
+            },
+            Row {
+                id: dirty_path.to_string_lossy().to_string(),
+                source: RowSource::File {
+                    path: dirty_path.clone(),
+                    original_text: dirty_text.into(),
+                },
+                record: dirty_record,
+                parse_error: None,
+                pending_delete: false,
+                dirty: true,
+            },
+        ],
+        warnings: vec![],
+    };
+
+    let result = save_all(model).unwrap();
+    assert!(result.failures.is_empty(), "no save failures expected");
+
+    // The clean file's bytes must be byte-identical to the original.
+    let after_clean = fs::read_to_string(&clean_path).unwrap();
+    assert_eq!(
+        after_clean, clean_text,
+        "clean.md must not be touched on Save All"
+    );
+    assert_eq!(
+        result.written.iter().any(|p| p == &clean_path),
+        false,
+        "clean.md must not appear in written list"
+    );
+
+    // The dirty file's bytes must reflect the edit (title: New).
+    let after_dirty = fs::read_to_string(&dirty_path).unwrap();
+    assert!(
+        after_dirty.contains("title: New"),
+        "dirty.md should have new title; got:\n{after_dirty}"
+    );
+    assert!(
+        result.written.iter().any(|p| p == &dirty_path),
+        "dirty.md must appear in written list"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]

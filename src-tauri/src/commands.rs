@@ -44,6 +44,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                 record: parsed.record,
                 parse_error: None,
                 pending_delete: false,
+                dirty: false,
             }),
             Err(e) => {
                 let msg = e.to_string();
@@ -60,6 +61,7 @@ pub fn open_folder(path: String) -> Result<TableModel> {
                     record: Record::new(),
                     parse_error: Some(msg),
                     pending_delete: false,
+                    dirty: false,
                 });
             }
         }
@@ -108,6 +110,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     record,
                     parse_error: None,
                     pending_delete: false,
+                    dirty: false,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -139,6 +142,7 @@ pub fn open_file(path: String) -> Result<TableModel> {
                     record,
                     parse_error: None,
                     pending_delete: false,
+                    dirty: false,
                 })
                 .collect::<Vec<_>>();
             let records: Vec<Record> = rows.iter().map(|r| r.record.clone()).collect();
@@ -214,6 +218,13 @@ pub fn save_all(table: TableModel) -> Result<SaveResult> {
                     continue;
                 }
                 if row.parse_error.is_some() {
+                    continue;
+                }
+                // Skip clean rows: their bytes (and mtimes) stay untouched.
+                // A newly-added row has empty original_text and no on-disk
+                // file yet, so always write those even if dirty wasn't set.
+                let new_file_never_saved = original_text.is_empty() && !path.exists();
+                if !row.dirty && !new_file_never_saved {
                     continue;
                 }
                 let body = extract_body(original_text);

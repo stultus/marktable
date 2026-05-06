@@ -32,6 +32,12 @@ pub struct Row {
     /// folder mode deletes the file, single-file mode omits the item.
     #[serde(default)]
     pub pending_delete: bool,
+    /// True when this row has been edited since open / last save. Folder mode
+    /// uses this to skip writes for untouched files so their bytes (and
+    /// mtimes) are preserved exactly. Single-file mode ignores this — the
+    /// whole document round-trips on every save regardless.
+    #[serde(default)]
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
