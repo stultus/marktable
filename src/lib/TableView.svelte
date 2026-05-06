@@ -1286,7 +1286,7 @@
           The <code>{pendingDeleteCol}</code> field will be removed from every row.
         </p>
         <p class="modal-destructive-meta">
-          Save All writes the change to disk. Until then, this is reversible — close the file without saving to undo.
+          Reversible until Save&nbsp;All — close the file without saving to undo.
         </p>
       </div>
       <div class="modal-actions">
@@ -1662,6 +1662,9 @@
     box-shadow: var(--mt-shadow-3);
     animation: pop-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.05);
   }
+  .modal.modal-destructive {
+    width: min(460px, calc(100vw - 32px));
+  }
   /* Hairline accent at the top — subtle wash of the brand blue.
      Rounded only at the top corners so it follows the modal frame
      without forcing overflow:hidden on the parent (which would clip
@@ -1731,11 +1734,22 @@
     font-size: 12px !important;
     color: var(--mt-fg-subtle) !important;
   }
+  /* The destructive modal isn't wrapped in a form with 26px padding, so the
+     parent .modal-actions' negative-margin trick (designed for that wrapper)
+     pushes content off the left edge. Reset the margins, give the action bar
+     its own padding, and right-align the buttons. */
   .modal-destructive .modal-actions {
-    margin-top: 14px;
-    padding-top: 14px;
-    padding-bottom: 14px;
+    margin: 0;
+    padding: 14px 22px;
     border-top: 1px solid var(--mt-divider);
+    justify-content: flex-end;
+  }
+  /* Hide the secondary "esc to close" caption inside the destructive variant.
+     Destructive confirms shouldn't compete for attention with keyboard hints —
+     the global Escape handler still works, and the visual is calmer without
+     extra mono caps in the action bar. */
+  .modal-destructive .modal-actions::before {
+    content: none;
   }
   /* The leading SVG inside a destructive button gets its spacing from the
      button's flex `gap` — no manual margin/vertical-align needed. */
