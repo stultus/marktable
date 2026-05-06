@@ -175,6 +175,18 @@
   :global(*, *::before, *::after) {
     box-sizing: border-box;
   }
+  /* Global reduced-motion shutdown. Honors the OS-level setting per WCAG 2.3.3.
+     Animation-heavy components (DatePicker pop-in, Select menu fade, modal
+     pop-in, dirty-pill pulse, toast slide) all disable themselves here without
+     each one having to opt in. */
+  @media (prefers-reduced-motion: reduce) {
+    :global(*, *::before, *::after) {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
   :global(::selection) {
     background: var(--mt-accent-soft);
     color: var(--mt-fg);

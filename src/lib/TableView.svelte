@@ -239,7 +239,25 @@
   let addColInput = $state<HTMLInputElement | null>(null);
   let addRowInput = $state<HTMLInputElement | null>(null);
 
+  // Focus management: when a modal opens we remember the trigger element,
+  // and on close we return focus to it. Saves keyboard users from being
+  // dumped at the document body.
+  let lastFocused: HTMLElement | null = null;
+  function captureTrigger() {
+    const el = document.activeElement;
+    lastFocused = el instanceof HTMLElement ? el : null;
+  }
+  function restoreFocus() {
+    const el = lastFocused;
+    lastFocused = null;
+    // Defer one tick so the modal's tear-down doesn't reclaim focus.
+    if (el && document.body.contains(el)) {
+      tick().then(() => el.focus());
+    }
+  }
+
   function openAddColumn() {
+    captureTrigger();
     addColName = "";
     addColType = "text";
     addColError = null;
@@ -248,6 +266,7 @@
   }
   function closeAddColumn() {
     addColOpen = false;
+    restoreFocus();
   }
   function confirmAddColumn() {
     const name = addColName.trim();
@@ -267,6 +286,7 @@
     for (const r of model.rows) r.dirty = true;
     schemaDirty = true;
     addColOpen = false;
+    restoreFocus();
   }
 
   function newRowId(): string {
@@ -281,6 +301,7 @@
 
   function addInlineRow() {
     if (model.mode.kind === "folder") {
+      captureTrigger();
       addRowFilename = "";
       addRowError = null;
       addRowOpen = true;
@@ -335,6 +356,7 @@
     });
     rowsDirty = true;
     addRowOpen = false;
+    restoreFocus();
   }
 
   function toggleDeleteRow(rowIdx: number) {
@@ -344,6 +366,7 @@
   }
 
   function openEditColumn(col: { name: string; type: FieldType }) {
+    captureTrigger();
     editColOriginalName = col.name;
     editColName = col.name;
     editColType = col.type;
@@ -353,6 +376,7 @@
   }
   function cancelEditColumn() {
     editColOpen = false;
+    restoreFocus();
   }
   function confirmEditColumn() {
     const name = editColName.trim();
@@ -396,13 +420,20 @@
     }
     schemaDirty = true;
     editColOpen = false;
+    restoreFocus();
   }
 
+  let deleteConfirmButton = $state<HTMLButtonElement | null>(null);
   function requestDeleteColumn(name: string) {
+    captureTrigger();
     pendingDeleteCol = name;
+    // Focus the destructive primary so Enter confirms (matches OS conventions
+    // for confirm dialogs). Esc still dismisses via the global handler.
+    tick().then(() => deleteConfirmButton?.focus());
   }
   function cancelDeleteColumn() {
     pendingDeleteCol = null;
+    restoreFocus();
   }
   function confirmDeleteColumn() {
     const name = pendingDeleteCol;
@@ -428,6 +459,7 @@
     invalidCells = nextInvalid;
     schemaDirty = true;
     pendingDeleteCol = null;
+    restoreFocus();
   }
 
   function validationError(raw: string, type: FieldType): string | null {
@@ -569,12 +601,21 @@
         if (!saving && hasUnsaved) doSave();
         return;
       }
-      // Escape closes any open modal
+      // Escape closes any open modal and returns focus to its trigger.
       if (e.key === "Escape") {
-        if (addColOpen) addColOpen = false;
-        else if (editColOpen) editColOpen = false;
-        else if (addRowOpen) addRowOpen = false;
-        else if (pendingDeleteCol !== null) pendingDeleteCol = null;
+        if (addColOpen) {
+          addColOpen = false;
+          restoreFocus();
+        } else if (editColOpen) {
+          editColOpen = false;
+          restoreFocus();
+        } else if (addRowOpen) {
+          addRowOpen = false;
+          restoreFocus();
+        } else if (pendingDeleteCol !== null) {
+          pendingDeleteCol = null;
+          restoreFocus();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1055,13 +1096,16 @@
     </div>
   {/if}
 
-  <!-- Save toast -->
+  <!-- Save toast — text is in an aria-live region so screen readers
+       announce save success / failure / validation block. The role
+       depends on severity (status for success, alert for errors). -->
   {#if toast}
     <div
       class="toast"
       class:success={toast.kind === "success"}
       class:error={toast.kind === "error"}
-      role="status"
+      role={toast.kind === "error" ? "alert" : "status"}
+      aria-live={toast.kind === "error" ? "assertive" : "polite"}
       transition:fly={{ y: 12, duration: 220, easing: cubicOut }}
     >
       <span class="toast-icon" aria-hidden="true">
@@ -1160,7 +1204,7 @@
   {/if}
 
   {#if addRowOpen}
-    <div class="modal-backdrop" onclick={() => (addRowOpen = false)} role="presentation"></div>
+    <div class="modal-backdrop" onclick={() => { addRowOpen = false; restoreFocus(); }} role="presentation"></div>
     <div class="modal" role="dialog" aria-labelledby="add-row-title" aria-modal="true">
       <form onsubmit={(e) => { e.preventDefault(); confirmAddFolderRow(); }}>
         <h2 id="add-row-title">New file</h2>
@@ -1182,7 +1226,7 @@
           <p class="modal-error">{addRowError}</p>
         {/if}
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" onclick={() => (addRowOpen = false)}>Cancel</button>
+          <button type="button" class="btn-secondary" onclick={() => { addRowOpen = false; restoreFocus(); }}>Cancel</button>
           <button type="submit" class="btn-primary">Add</button>
         </div>
       </form>
@@ -1191,15 +1235,36 @@
 
   {#if pendingDeleteCol !== null}
     <div class="modal-backdrop" onclick={cancelDeleteColumn} role="presentation"></div>
-    <div class="modal" role="alertdialog" aria-labelledby="del-col-title" aria-modal="true">
-      <h2 id="del-col-title">Delete column?</h2>
-      <p class="modal-body">
-        Removes <code>{pendingDeleteCol}</code> from every row. The field
-        won't be written when you Save All.
-      </p>
+    <div class="modal modal-destructive" role="alertdialog" aria-labelledby="del-col-title" aria-describedby="del-col-body" aria-modal="true">
+      <header class="modal-destructive-head">
+        <span class="modal-destructive-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none">
+            <path d="M2.5 5.5h11M6 5.5V4a1 1 0 011-1h2a1 1 0 011 1v1.5M4 5.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9L12 5.5M7 8.5v3.5M9 8.5v3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <h2 id="del-col-title">Delete column</h2>
+      </header>
+      <div class="modal-destructive-body">
+        <p id="del-col-body">
+          The <code>{pendingDeleteCol}</code> field will be removed from every row.
+        </p>
+        <p class="modal-destructive-meta">
+          Save All writes the change to disk. Until then, this is reversible — close the file without saving to undo.
+        </p>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" onclick={cancelDeleteColumn}>Cancel</button>
-        <button type="button" class="btn-danger" onclick={confirmDeleteColumn}>Delete</button>
+        <button
+          type="button"
+          class="btn-danger"
+          onclick={confirmDeleteColumn}
+          bind:this={deleteConfirmButton}
+        >
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+            <path d="M2.5 5.5h11M6 5.5V4a1 1 0 011-1h2a1 1 0 011 1v1.5M4 5.5l.6 8a1 1 0 001 .9h4.8a1 1 0 001-.9L12 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Delete column</span>
+        </button>
       </div>
     </div>
   {/if}
@@ -1568,8 +1633,75 @@
     background: linear-gradient(90deg, transparent 0%, var(--mt-accent) 30%, var(--mt-accent) 70%, transparent 100%);
     opacity: 0.55;
   }
+  /* Destructive variant: red strip + iconified header + softer paragraph
+     hierarchy. The CTA on the right uses btn-danger which is already red. */
+  .modal-destructive::before {
+    background: linear-gradient(90deg, transparent 0%, var(--mt-error) 30%, var(--mt-error) 70%, transparent 100%);
+    opacity: 0.7;
+  }
+  .modal-destructive-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 22px 26px 0;
+  }
+  .modal-destructive-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--mt-error-bg);
+    color: var(--mt-error);
+    flex-shrink: 0;
+  }
+  .modal-destructive-head h2 {
+    margin: 0;
+    font-family: var(--mt-font-display);
+    font-weight: 600;
+    font-size: 19px;
+    line-height: 1.2;
+    letter-spacing: -0.014em;
+    color: var(--mt-fg);
+  }
+  .modal-destructive-body {
+    padding: 14px 26px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .modal-destructive-body p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--mt-fg-muted);
+  }
+  .modal-destructive-body code {
+    font-family: var(--mt-font-mono);
+    font-size: 12px;
+    background: var(--mt-surface-strong);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--mt-fg);
+    margin: 0 2px;
+  }
+  .modal-destructive-meta {
+    font-size: 12px !important;
+    color: var(--mt-fg-subtle) !important;
+  }
+  .modal-destructive .modal-actions {
+    margin-top: 14px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    border-top: 1px solid var(--mt-divider);
+  }
+  /* Compact spacing on btn-danger when it has an inline glyph. */
+  .btn-danger svg {
+    margin-right: 6px;
+    vertical-align: -2px;
+  }
   .modal form,
-  .modal > h2,
   .modal > .modal-body,
   .modal > .modal-actions {
     padding-left: 26px;
