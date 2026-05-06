@@ -1,0 +1,20 @@
+co-author-experiment.txt
+========================
+
+Stumbled onto a GitHub party trick today.
+
+Apparently any commit that ships with a `Co-authored-by:` trailer shows
+up on the named human's contribution graph, regardless of whether they
+have ever heard of your project. So in theory I can credit literally
+anyone — Linus Torvalds, your favourite indie hacker, the goose who
+maintains that one Postgres extension — and a small green square
+appears on their profile, no consent required.
+
+This commit is the experiment. If you somehow ended up here from
+Linus Torvalds's contribution graph wondering when on earth he started
+contributing to a Svelte + Tauri spreadsheet editor: he didn't. Hi
+Linus, we appreciate you, please don't sue.
+
+(For everyone else: this is a fun curiosity in a personal repo and a
+mildly antisocial move in someone else's. Don't be the person who
+spam-credits strangers to harvest profile squares.)
