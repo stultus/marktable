@@ -64,6 +64,97 @@
   // Tracks rows added in this session so add → delete (without saving) is purely local.
   let rowsDirty = $state(false);
 
+  // Per-cell value at focus time, so Escape can revert in-flight edits.
+  const cellOriginal = new Map<string, string>();
+
+  function rememberOriginal(rowIdx: number, colName: string, currentValue: string) {
+    cellOriginal.set(cellKey(rowIdx, colName), currentValue);
+  }
+
+  /** Focus the editor inside a specific cell. Searches text inputs, textareas,
+   *  the boolean checkbox, and the date-picker trigger in priority order. */
+  function focusCell(rowIdx: number, colName: string) {
+    const sel = [
+      `[data-cell="${rowIdx}::${cssEscape(colName)}"] textarea`,
+      `[data-cell="${rowIdx}::${cssEscape(colName)}"] input[type="text"]`,
+      `[data-cell="${rowIdx}::${cssEscape(colName)}"] .dp-trigger`,
+      `[data-cell="${rowIdx}::${cssEscape(colName)}"] input[type="checkbox"]`,
+    ].join(", ");
+    const el = document.querySelector<HTMLElement>(sel);
+    el?.focus();
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.select?.();
+    }
+  }
+
+  function cssEscape(s: string): string {
+    // CSS attribute selectors can't contain bare quotes etc. Escape the few
+    // characters our column names might plausibly contain.
+    return s.replace(/(["\\])/g, "\\$1");
+  }
+
+  function focusNext(rowIdx: number, colName: string) {
+    const cols = model.schema.columns;
+    const colIdx = cols.findIndex((c) => c.name === colName);
+    if (colIdx < 0) return;
+    if (colIdx + 1 < cols.length) {
+      focusCell(rowIdx, cols[colIdx + 1].name);
+    } else if (rowIdx + 1 < model.rows.length) {
+      focusCell(rowIdx + 1, cols[0].name);
+    }
+  }
+
+  function focusPrev(rowIdx: number, colName: string) {
+    const cols = model.schema.columns;
+    const colIdx = cols.findIndex((c) => c.name === colName);
+    if (colIdx < 0) return;
+    if (colIdx > 0) {
+      focusCell(rowIdx, cols[colIdx - 1].name);
+    } else if (rowIdx > 0) {
+      focusCell(rowIdx - 1, cols[cols.length - 1].name);
+    }
+  }
+
+  /** Keydown handler for text-overlay editors (input + textarea).
+   *  - Enter (no Shift) → commit + advance one row, same column
+   *  - Shift+Enter      → default (newline in textarea)
+   *  - Tab / Shift+Tab  → in a textarea, prevent the literal tab insert and
+   *                       advance row-major focus instead
+   *  - Escape           → revert to the value at focus time, blur (no commit) */
+  function cellKeyDown(
+    e: KeyboardEvent,
+    rowIdx: number,
+    colName: string,
+    type: FieldType,
+  ) {
+    const target = e.currentTarget as HTMLInputElement | HTMLTextAreaElement;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      const orig = cellOriginal.get(cellKey(rowIdx, colName));
+      if (orig !== undefined) target.value = orig;
+      target.blur();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      commitEdit(rowIdx, colName, target.value, type);
+      if (rowIdx + 1 < model.rows.length) {
+        focusCell(rowIdx + 1, colName);
+      } else {
+        target.blur();
+      }
+      return;
+    }
+    if (e.key === "Tab" && target instanceof HTMLTextAreaElement) {
+      // Browsers insert "\t" into a textarea on Tab. Override so it advances
+      // focus like every other input does by default.
+      e.preventDefault();
+      commitEdit(rowIdx, colName, target.value, type);
+      if (e.shiftKey) focusPrev(rowIdx, colName);
+      else focusNext(rowIdx, colName);
+    }
+  }
+
   const cellKey = (row: number, col: string) => `${row}::${col}`;
 
   let addColInput = $state<HTMLInputElement | null>(null);
@@ -728,6 +819,7 @@
                   class:empty
                   class:invalid={invalidMsg !== undefined}
                   title={invalidMsg ?? undefined}
+                  data-cell="{rowIdx}::{col.name}"
                 >
                   {#if row.parse_error}
                     <span class="parse-err">parse error</span>
@@ -775,6 +867,9 @@
                           type="text"
                           class="overlay"
                           value={cellText(rowIdx, col.name)}
+                          onfocus={(e) =>
+                            rememberOriginal(rowIdx, col.name, (e.currentTarget as HTMLInputElement).value)}
+                          onkeydown={(e) => cellKeyDown(e, rowIdx, col.name, col.type)}
                           onchange={(e) =>
                             commitEdit(
                               rowIdx,
@@ -795,6 +890,9 @@
                           class="overlay"
                           rows="1"
                           value={cellText(rowIdx, col.name)}
+                          onfocus={(e) =>
+                            rememberOriginal(rowIdx, col.name, (e.currentTarget as HTMLTextAreaElement).value)}
+                          onkeydown={(e) => cellKeyDown(e, rowIdx, col.name, col.type)}
                           onchange={(e) =>
                             commitEdit(
                               rowIdx,
