@@ -256,6 +256,42 @@
     }
   }
 
+  /** Svelte action: trap Tab/Shift+Tab inside the node so focus can't escape
+   *  to background controls. Wraps every modal. Cycles through tabbable
+   *  descendants only; everything else is reachable via mouse or programmatic
+   *  focus, but not Tab key. */
+  function trapFocus(node: HTMLElement) {
+    const FOCUSABLE =
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const items = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !node.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    node.addEventListener("keydown", onKey);
+    return {
+      destroy() {
+        node.removeEventListener("keydown", onKey);
+      },
+    };
+  }
+
   function openAddColumn() {
     captureTrigger();
     addColName = "";
@@ -1194,7 +1230,7 @@
 
   {#if addColOpen}
     <div class="modal-backdrop" onclick={closeAddColumn} role="presentation"></div>
-    <div class="modal" role="dialog" aria-labelledby="add-col-title" aria-modal="true">
+    <div class="modal" use:trapFocus role="dialog" aria-labelledby="add-col-title" aria-modal="true">
       <form onsubmit={(e) => { e.preventDefault(); confirmAddColumn(); }}>
         <h2 id="add-col-title">Add a column</h2>
         <label class="field">
@@ -1229,7 +1265,7 @@
 
   {#if editColOpen}
     <div class="modal-backdrop" onclick={cancelEditColumn} role="presentation"></div>
-    <div class="modal" role="dialog" aria-labelledby="edit-col-title" aria-modal="true">
+    <div class="modal" use:trapFocus role="dialog" aria-labelledby="edit-col-title" aria-modal="true">
       <form onsubmit={(e) => { e.preventDefault(); confirmEditColumn(); }}>
         <h2 id="edit-col-title">Edit column</h2>
         <p class="modal-body">
@@ -1268,7 +1304,7 @@
 
   {#if addRowOpen}
     <div class="modal-backdrop" onclick={() => { addRowOpen = false; restoreFocus(); }} role="presentation"></div>
-    <div class="modal" role="dialog" aria-labelledby="add-row-title" aria-modal="true">
+    <div class="modal" use:trapFocus role="dialog" aria-labelledby="add-row-title" aria-modal="true">
       <form onsubmit={(e) => { e.preventDefault(); confirmAddFolderRow(); }}>
         <h2 id="add-row-title">New file</h2>
         <p class="modal-body">
@@ -1298,7 +1334,7 @@
 
   {#if pendingDeleteCol !== null}
     <div class="modal-backdrop" onclick={cancelDeleteColumn} role="presentation"></div>
-    <div class="modal modal-destructive" role="alertdialog" aria-labelledby="del-col-title" aria-describedby="del-col-body" aria-modal="true">
+    <div class="modal modal-destructive" use:trapFocus role="alertdialog" aria-labelledby="del-col-title" aria-describedby="del-col-body" aria-modal="true">
       <header class="modal-destructive-head">
         <span class="modal-destructive-icon" aria-hidden="true">
           <svg viewBox="0 0 16 16" width="18" height="18" fill="none">
