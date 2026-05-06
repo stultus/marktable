@@ -40,6 +40,11 @@
   let saving = $state(false);
   let toast = $state<{ kind: "success" | "error"; text: string } | null>(null);
   let dismissedWarnings = $state(new Set<number>());
+  // Per-file failure list from the most recent Save All. When non-empty,
+  // a "View details" link appears in the error toast and opens a modal
+  // listing each {path, message}.
+  let saveFailures = $state<{ path: string; message: string }[]>([]);
+  let saveFailuresOpen = $state(false);
 
   // Add Column modal state
   let addColOpen = $state(false);
@@ -639,11 +644,16 @@
           if (toast?.kind === "success") toast = null;
         }, 3200);
       } else {
+        // Stash the per-file detail and surface a "View details" link in
+        // the toast. Comma-separating long messages in the toast itself
+        // truncates badly when there are 3+ failures.
+        saveFailures = result.failures;
         toast = {
           kind: "error",
-          text: `Saved ${wrote}. ${failed} failed: ${result.failures
-            .map((f) => `${basename(f.path)} (${f.message})`)
-            .join("; ")}`,
+          text:
+            failed === 1
+              ? `Saved ${wrote}. 1 file failed: ${basename(result.failures[0].path)} — ${result.failures[0].message}`
+              : `Saved ${wrote}. ${failed} files failed.`,
         };
       }
     } catch (e) {
@@ -651,6 +661,15 @@
     } finally {
       saving = false;
     }
+  }
+
+  function openSaveFailures() {
+    captureTrigger();
+    saveFailuresOpen = true;
+  }
+  function closeSaveFailures() {
+    saveFailuresOpen = false;
+    restoreFocus();
   }
 
   onMount(() => {
@@ -674,6 +693,9 @@
           restoreFocus();
         } else if (pendingDeleteCol !== null) {
           pendingDeleteCol = null;
+          restoreFocus();
+        } else if (saveFailuresOpen) {
+          saveFailuresOpen = false;
           restoreFocus();
         }
       }
@@ -1267,11 +1289,45 @@
         {/if}
       </span>
       <span class="toast-text">{toast.text}</span>
+      {#if toast.kind === "error" && saveFailures.length > 1}
+        <button class="toast-action" onclick={openSaveFailures}>View details</button>
+      {/if}
       <button class="toast-close" onclick={() => (toast = null)} aria-label="Dismiss">
         <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
           <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
       </button>
+    </div>
+  {/if}
+
+  {#if saveFailuresOpen}
+    <div class="modal-backdrop" onclick={closeSaveFailures} role="presentation"></div>
+    <div class="modal modal-destructive modal-failures" use:trapFocus role="alertdialog" aria-labelledby="save-fail-title" aria-modal="true">
+      <header class="modal-destructive-head">
+        <span class="modal-destructive-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none">
+            <path d="M8 1.5l7 12.5H1L8 1.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M8 6.5v3.5M8 12v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <h2 id="save-fail-title">{saveFailures.length} files failed</h2>
+      </header>
+      <div class="modal-destructive-body">
+        <p class="modal-destructive-meta">
+          The following files were not written. The successful files are already on disk.
+        </p>
+        <ul class="failure-list">
+          {#each saveFailures as f (f.path)}
+            <li class="failure-item">
+              <span class="failure-path" title={f.path}>{basename(f.path)}</span>
+              <span class="failure-msg">{f.message}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick={closeSaveFailures}>Close</button>
+      </div>
     </div>
   {/if}
 
@@ -2728,6 +2784,25 @@
     flex: 1;
     word-break: break-word;
   }
+  .toast-action {
+    all: unset;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background 120ms ease;
+  }
+  .toast-action:hover {
+    background: rgba(255, 255, 255, 0.28);
+  }
+  .toast-action:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 2px;
+  }
   .toast-close {
     all: unset;
     cursor: pointer;
@@ -2743,6 +2818,44 @@
   .toast-close:hover {
     background: rgba(255, 255, 255, 0.18);
     color: #fff;
+  }
+
+  /* Save-failures detail modal */
+  .modal-failures {
+    width: min(560px, calc(100vw - 32px));
+  }
+  .failure-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--mt-divider);
+    border-radius: 6px;
+    background: var(--mt-surface);
+  }
+  .failure-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--mt-divider);
+  }
+  .failure-item:last-child {
+    border-bottom: none;
+  }
+  .failure-path {
+    font-family: var(--mt-font-mono);
+    font-size: 12.5px;
+    color: var(--mt-fg);
+    font-weight: 500;
+  }
+  .failure-msg {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--mt-fg-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   @keyframes spin {
