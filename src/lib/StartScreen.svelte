@@ -110,21 +110,10 @@
       </span>
       <span class="brand-name">MarkTable</span>
     </div>
-    <span class="version">v0.1 &nbsp;·&nbsp; local-first</span>
   </header>
 
   <section class="hero">
-    <p class="eyebrow">A quiet utility for structured content</p>
-    <h1>
-      Edit structured content<br />
-      <span class="accent">like a spreadsheet.</span>
-    </h1>
-    <p class="lede">
-      Open a folder of markdown frontmatter, a JSON array, or a YAML list. Each
-      record becomes a row, each field a column. Edit inline, hit Save All, get
-      your files back exactly as they were &mdash; only the cells you touched
-      change.
-    </p>
+    <h1>Edit structured content like a spreadsheet.</h1>
   </section>
 
   <section class="choices" aria-label="Open">
@@ -269,20 +258,13 @@
     </div>
   {/if}
 
-  <footer class="footnote">
-    <span><strong>Read</strong>&nbsp;parses your files into a unified schema.</span>
-    <span class="sep" aria-hidden="true">/</span>
-    <span><strong>Edit</strong>&nbsp;in cells; nothing is written yet.</span>
-    <span class="sep" aria-hidden="true">/</span>
-    <span><strong>Save All</strong>&nbsp;writes back, original formatting preserved.</span>
-  </footer>
 </main>
 
 <style>
   .start {
     min-height: 100vh;
     display: grid;
-    grid-template-rows: auto 1fr auto auto;
+    grid-template-rows: auto auto auto auto 1fr;
     max-width: 880px;
     margin: 0 auto;
     padding: 24px 40px 28px;
@@ -337,45 +319,20 @@
     color: var(--mt-fg);
     font-weight: 500;
   }
-  .version {
-    font-family: var(--mt-font-mono);
-    font-size: 11.5px;
-    letter-spacing: 0.04em;
-    text-transform: lowercase;
-  }
 
   /* Hero */
   .hero {
-    padding: 72px 0 36px;
-    max-width: 720px;
-  }
-  .eyebrow {
-    font-family: var(--mt-font-mono);
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--mt-fg-subtle);
-    margin: 0 0 20px;
+    padding: 36px 0 24px;
+    max-width: 640px;
   }
   h1 {
     margin: 0;
     font-family: var(--mt-font-display);
-    font-weight: 600;
-    font-size: clamp(34px, 4.6vw, 50px);
-    line-height: 1.08;
-    letter-spacing: -0.024em;
-    color: var(--mt-fg);
-  }
-  h1 .accent {
-    color: var(--mt-fg-muted);
     font-weight: 500;
-  }
-  .lede {
-    margin: 22px 0 0;
-    font-size: 15px;
-    line-height: 1.65;
-    color: var(--mt-fg-muted);
-    max-width: 56ch;
+    font-size: clamp(20px, 2.2vw, 24px);
+    line-height: 1.3;
+    letter-spacing: -0.012em;
+    color: var(--mt-fg);
   }
 
   /* Choice cards */
@@ -665,28 +622,6 @@
     background: color-mix(in srgb, var(--mt-error) 16%, transparent);
   }
 
-  /* Footnote */
-  .footnote {
-    margin-top: 32px;
-    padding-top: 18px;
-    border-top: 1px solid var(--mt-divider);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    color: var(--mt-fg-muted);
-    font-size: 12.5px;
-  }
-  .footnote strong {
-    color: var(--mt-fg);
-    font-weight: 600;
-  }
-  .footnote .sep {
-    color: var(--mt-fg-subtle);
-    font-family: var(--mt-font-mono);
-    font-size: 11px;
-  }
-
   @keyframes spin {
     to {
       transform: rotate(360deg);
@@ -694,27 +629,18 @@
   }
 
   /* Page-load reveal: subtle staggered fade. Notion is restrained — short, soft. */
-  .start :global(.eyebrow),
   .hero h1,
-  .lede,
-  .choices > .choice,
-  .footnote {
+  .choices > .choice {
     animation: rise 480ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
   }
   .hero h1 {
     animation-delay: 60ms;
   }
-  .lede {
-    animation-delay: 120ms;
-  }
   .choices > .choice:nth-child(1) {
-    animation-delay: 200ms;
+    animation-delay: 140ms;
   }
   .choices > .choice:nth-child(2) {
-    animation-delay: 260ms;
-  }
-  .footnote {
-    animation-delay: 340ms;
+    animation-delay: 200ms;
   }
   @keyframes rise {
     from {
@@ -727,11 +653,8 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .start :global(.eyebrow),
     .hero h1,
-    .lede,
-    .choices > .choice,
-    .footnote {
+    .choices > .choice {
       animation: none;
     }
   }
