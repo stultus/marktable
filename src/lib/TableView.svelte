@@ -2,6 +2,7 @@
   import { onMount, untrack, tick } from "svelte";
   import { fly, fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     saveAll,
     valueToDisplay,
@@ -48,6 +49,11 @@
   // Confirm-discard prompt — appears when the user clicks Close while there
   // are unsaved changes. Direct close (no unsaved) skips the prompt.
   let confirmCloseOpen = $state(false);
+  // True when the confirm-close was triggered by the OS window-close event
+  // (red traffic light / ⌘Q / ⌘W) rather than the in-app back arrow.
+  // confirmDiscardAndClose uses this to decide whether to call onClose() or
+  // destroy the Tauri window.
+  let pendingWindowClose = $state(false);
   // Keyboard shortcuts cheat-sheet modal.
   let shortcutsOpen = $state(false);
 
@@ -761,11 +767,20 @@
   }
   function cancelClose() {
     confirmCloseOpen = false;
+    pendingWindowClose = false;
     restoreFocus();
   }
-  function confirmDiscardAndClose() {
+  async function confirmDiscardAndClose() {
     confirmCloseOpen = false;
-    onClose();
+    if (pendingWindowClose) {
+      // The user attempted to close the OS window. Honor that by destroying
+      // the Tauri window itself (Wry will then exit the app for our single-
+      // window build). The in-app onClose() would only swap StartScreen back.
+      pendingWindowClose = false;
+      await getCurrentWindow().destroy();
+    } else {
+      onClose();
+    }
   }
 
   onMount(() => {
@@ -815,7 +830,31 @@
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+
+    // Intercept the OS-level close-window request (red traffic light, ⌘W,
+    // ⌘Q) so unsaved work doesn't disappear silently. If clean, default
+    // close happens (we don't preventDefault). If unsaved, prevent the
+    // close and route into the in-app confirm prompt.
+    let unlistenClose: (() => void) | null = null;
+    const win = getCurrentWindow();
+    win
+      .onCloseRequested(async (event) => {
+        if (!hasUnsaved) return; // let the OS close us
+        event.preventDefault();
+        if (!confirmCloseOpen) {
+          captureTrigger();
+          pendingWindowClose = true;
+          confirmCloseOpen = true;
+        }
+      })
+      .then((fn) => {
+        unlistenClose = fn;
+      });
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      unlistenClose?.();
+    };
   });
 
   function rowLabel(rowIdx: number): string {
@@ -1257,17 +1296,21 @@
                       title="Click to cycle — empty → true → false"
                       aria-label="{col.name}: {v.kind === 'bool' ? (v.value ? 'true' : 'false') : 'empty'}. Click to cycle."
                     >
-                      {#if v.kind === "bool" && v.value}
-                        <svg viewBox="0 0 14 14" width="12" height="12" fill="none" aria-hidden="true">
-                          <path d="M3 7.5l2.4 2.3L11 4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      {:else if v.kind === "bool" && !v.value}
-                        <svg viewBox="0 0 14 14" width="11" height="11" fill="none" aria-hidden="true">
-                          <path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                        </svg>
-                      {:else}
-                        <span class="bool-null-glyph" aria-hidden="true">–</span>
-                      {/if}
+                      <span class="bool-pill" aria-hidden="true">
+                        {#if v.kind === "bool" && v.value}
+                          <svg viewBox="0 0 14 14" width="11" height="11" fill="none">
+                            <path d="M3 7.5l2.4 2.3L11 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                          <span class="bool-pill-label">true</span>
+                        {:else if v.kind === "bool" && !v.value}
+                          <svg viewBox="0 0 14 14" width="10" height="10" fill="none">
+                            <path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                          </svg>
+                          <span class="bool-pill-label">false</span>
+                        {:else}
+                          <span class="bool-pill-dash">—</span>
+                        {/if}
+                      </span>
                     </button>
                   {:else if col.type === "date"}
                     <DatePicker
@@ -2877,10 +2920,12 @@
     color: var(--mt-fg-subtle);
   }
 
-  /* Three-state boolean cell. The previous binary checkbox conflated null
-     with false; this version cycles null → true → false → null on click,
-     showing a typed glyph for each state. Stays a single-tap target so
-     it's still keyboard-friendly via Enter/Space. */
+  /* Three-state boolean cell. Click cycles null → true → false → null.
+     Each state gets a chip-pill that reads as a typed value at a glance:
+       true  → green "✓ true" pill
+       false → red   "✗ false" pill
+       null  → dashed "—" outline pill
+     Same chip language as list-chips so the table feels coherent. */
   .bool-cell {
     all: unset;
     cursor: pointer;
@@ -2890,10 +2935,7 @@
     width: 100%;
     height: 100%;
     min-height: 36px;
-    color: var(--mt-fg-subtle);
-    font-family: var(--mt-font-mono);
-    font-size: 13px;
-    transition: background 120ms ease, color 120ms ease;
+    transition: background 120ms ease;
   }
   .bool-cell:hover {
     background: var(--mt-hover);
@@ -2902,15 +2944,47 @@
     outline: 2px solid var(--mt-accent);
     outline-offset: -2px;
   }
-  .bool-cell.bool-true {
-    color: var(--mt-success);
+  .bool-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px 2px 7px;
+    border-radius: 999px;
+    font-family: var(--mt-font-mono);
+    font-size: 11px;
+    line-height: 16px;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
   }
-  .bool-cell.bool-false {
-    color: var(--mt-fg-muted);
+  .bool-cell.bool-true .bool-pill {
+    background: var(--mt-tag-green);
+    color: var(--mt-tag-green-fg);
   }
-  .bool-cell.bool-null .bool-null-glyph {
-    font-style: italic;
+  .bool-cell.bool-false .bool-pill {
+    background: var(--mt-tag-red);
+    color: var(--mt-tag-red-fg);
+  }
+  .bool-cell.bool-null .bool-pill {
+    background: transparent;
     color: var(--mt-fg-subtle);
+    border-color: var(--mt-border-strong);
+    border-style: dashed;
+    padding: 2px 12px;
+  }
+  .bool-pill-dash {
+    font-size: 13px;
+    line-height: 14px;
+  }
+  .bool-cell:hover .bool-pill {
+    /* Subtle lift on hover so users sense the cycle action. */
+    filter: brightness(0.97);
+  }
+  .bool-cell.bool-null:hover .bool-pill {
+    filter: none;
+    border-style: solid;
+    border-color: var(--mt-fg-subtle);
+    color: var(--mt-fg-muted);
   }
 
   /* List cell — chip pills with × removal + trailing add-input. Replaces
